@@ -79,6 +79,8 @@ ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override)
 		                                    static_cast<long long>(port));
 	}
 	options.guard.port = static_cast<int>(port);
+	Value probe;
+	options.probe_routes = context.TryGetCurrentSetting("ofexcel_probe_routes", probe) && !probe.IsNull() && probe.GetValue<bool>();
 	return options;
 }
 
@@ -249,6 +251,9 @@ void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	config.AddExtensionOption("ofexcel_hosted_origin",
 	                          "The one Origin the hosted add-in is served from, e.g. https://intranet.example.com.",
 	                          LogicalType::VARCHAR, Value(""));
+	config.AddExtensionOption("ofexcel_probe_routes",
+	                          "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
 }
 
 void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {

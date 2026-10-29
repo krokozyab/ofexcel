@@ -104,6 +104,9 @@ void InstallFallbacks(httplib::Server &server) {
 
 void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterHealthRoutes(server, context);
+	if (context.options.probe_routes) {
+		RegisterProbeRoutes(server, context);
+	}
 }
 
 } // namespace

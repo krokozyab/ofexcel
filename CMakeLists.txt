@@ -28,6 +28,7 @@ set(EXTENSION_SOURCES
         src/server/json_body.cpp
         src/server/http_server.cpp
         src/server/routes_health.cpp
+        src/server/routes_probe.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})

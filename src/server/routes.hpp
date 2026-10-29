@@ -38,5 +38,7 @@ void SendError(httplib::Response &response, int status, const std::string &code,
 void SetVersionHeaders(httplib::Response &response, duckdb::Connection &connection);
 
 void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context);
+//! Phase 0 only; registered when ServerOptions::probe_routes is set.
+void RegisterProbeRoutes(httplib::Server &server, const RouteContext &context);
 
 } // namespace ofexcel

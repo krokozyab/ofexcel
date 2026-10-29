@@ -67,6 +67,60 @@ JsonObject &JsonObject::Set(const std::string &key, const JsonObject &value) {
 	return *this;
 }
 
+JsonArrayRef JsonObject::SetArray(const std::string &key) {
+	auto *array = yyjson_mut_arr(impl->doc);
+	impl->Add(key, array);
+	return JsonArrayRef(impl->doc, array);
+}
+
+namespace {
+
+yyjson_mut_doc *DocOf(void *doc) {
+	return static_cast<yyjson_mut_doc *>(doc);
+}
+
+yyjson_mut_val *ArrayOf(void *array) {
+	return static_cast<yyjson_mut_val *>(array);
+}
+
+} // namespace
+
+JsonArrayRef &JsonArrayRef::AddString(const std::string &value) {
+	yyjson_mut_arr_append(ArrayOf(array), yyjson_mut_strncpy(DocOf(doc), value.data(), value.size()));
+	return *this;
+}
+
+JsonArrayRef &JsonArrayRef::AddInt(int64_t value) {
+	yyjson_mut_arr_append(ArrayOf(array), yyjson_mut_sint(DocOf(doc), value));
+	return *this;
+}
+
+JsonArrayRef &JsonArrayRef::AddDouble(double value) {
+	yyjson_mut_arr_append(ArrayOf(array), yyjson_mut_real(DocOf(doc), value));
+	return *this;
+}
+
+JsonArrayRef &JsonArrayRef::AddBool(bool value) {
+	yyjson_mut_arr_append(ArrayOf(array), yyjson_mut_bool(DocOf(doc), value));
+	return *this;
+}
+
+JsonArrayRef &JsonArrayRef::AddNull() {
+	yyjson_mut_arr_append(ArrayOf(array), yyjson_mut_null(DocOf(doc)));
+	return *this;
+}
+
+JsonArrayRef &JsonArrayRef::AddObject(const JsonObject &value) {
+	yyjson_mut_arr_append(ArrayOf(array), yyjson_mut_val_mut_copy(DocOf(doc), value.impl->root));
+	return *this;
+}
+
+JsonArrayRef JsonArrayRef::AddArray() {
+	auto *nested = yyjson_mut_arr(DocOf(doc));
+	yyjson_mut_arr_append(ArrayOf(array), nested);
+	return JsonArrayRef(doc, nested);
+}
+
 std::string JsonObject::Serialize() const {
 	size_t length = 0;
 	char *text = yyjson_mut_write(impl->doc, YYJSON_WRITE_NOFLAG, &length);

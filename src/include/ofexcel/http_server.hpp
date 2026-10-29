@@ -17,6 +17,8 @@ struct ServerOptions {
 	//! Profile, origins and session token. `guard.port` is the port to bind; 0
 	//! picks a free one, and the guard then checks against the port bound.
 	GuardConfig guard;
+	//! Phase 0 only: serve /v1/probe/* (src/server/routes_probe.cpp).
+	bool probe_routes = false;
 };
 
 class HttpServer {

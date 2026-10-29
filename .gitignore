@@ -10,3 +10,7 @@ duckdb_unittest_tempdir/
 testext
 test/python/__pycache__/
 .DS_Store
+
+# add-in probe: loaded data and saved reports stay local
+tools/addin-probe/state/
+tools/addin-probe/reports/
