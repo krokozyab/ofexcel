@@ -1,0 +1,182 @@
+#include "startup.hpp"
+
+#include "core_functions_extension.hpp"
+#include "fusion_scanner_extension.hpp"
+#include "ofexcel/db_util.hpp"
+#include "ofexcel/migrations.hpp"
+#include "ofexcel/paths.hpp"
+#include "ofexcel_extension.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
+namespace ofexcel {
+
+namespace {
+
+namespace fs = std::filesystem;
+
+//! The schemas migrations.cpp creates (CONTRACTS.md §6.2).
+const char *const RESERVED_CATALOG_NAMES[] = {"meta", "ds", "xl_import"};
+
+std::string Lower(std::string text) {
+	std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::tolower(c); });
+	return text;
+}
+
+//! Quotes a value for use as a SQL string literal.
+std::string SqlString(const std::string &value) {
+	std::string quoted = "'";
+	for (const auto c : value) {
+		quoted += c;
+		if (c == '\'') {
+			quoted += '\'';
+		}
+	}
+	return quoted + "'";
+}
+
+bool FileExists(const std::string &path) {
+	std::error_code error;
+	return fs::is_regular_file(fs::u8path(path), error);
+}
+
+//! QEXCEL_HOME, created private to the user if it does not exist yet: it holds
+//! the database and, under tls/, the CA's key.
+std::string EnsureHome() {
+	std::string home;
+	try {
+		home = QexcelHome();
+	} catch (const std::exception &error) {
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; задайте --db", error.what());
+	}
+	std::error_code error;
+	const bool created = fs::create_directories(fs::u8path(home), error);
+	if (error) {
+		throw duckdb::IOException("E_INTERNAL: не удалось создать каталог %s: %s", home, error.message());
+	}
+#ifndef _WIN32
+	if (created) {
+		::chmod(home.c_str(), 0700);
+	}
+#else
+	(void)created;
+#endif
+	return home;
+}
+
+int ParsePort(const std::string &text) {
+	const bool digits = !text.empty() && text.size() <= 5 &&
+	                    std::all_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); });
+	const int port = digits ? std::stoi(text) : -1;
+	if (port < 0 || port > 65535) {
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: --port должен быть числом от 0 до 65535, а не '%s'", text);
+	}
+	return port;
+}
+
+//! SPEC.md §8.4. Repeated even where OpenDatabase already set them, because
+//! init.sql runs in between and may have changed them.
+void Harden(duckdb::Connection &connection) {
+	Execute(connection, "SET autoinstall_known_extensions = false");
+	Execute(connection, "SET autoload_known_extensions = false");
+	Execute(connection, "SET allow_community_extensions = false");
+	Execute(connection, "SET enable_external_access = false");
+	Execute(connection, "SET lock_configuration = true");
+}
+
+} // namespace
+
+std::string ReadTextFile(const std::string &path) {
+	std::ifstream file(fs::u8path(path), std::ios::binary);
+	if (!file) {
+		throw duckdb::IOException("E_BAD_REQUEST: не удалось прочитать файл %s", path);
+	}
+	std::ostringstream content;
+	content << file.rdbuf();
+	return content.str();
+}
+
+duckdb::unique_ptr<duckdb::DuckDB> OpenDatabase(const std::string &path) {
+	duckdb::DBConfig config;
+	config.SetOptionByName("autoinstall_known_extensions", duckdb::Value::BOOLEAN(false));
+	config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
+	config.SetOptionByName("memory_limit", duckdb::Value(DEFAULT_MEMORY_LIMIT));
+	config.SetOptionByName("threads", duckdb::Value::BIGINT(DEFAULT_THREADS));
+	auto db = duckdb::make_uniq<duckdb::DuckDB>(path == ":memory:" ? nullptr : path.c_str(), &config);
+	db->LoadStaticExtension<duckdb::CoreFunctionsExtension>();
+	db->LoadStaticExtension<duckdb::FusionScannerExtension>();
+	db->LoadStaticExtension<duckdb::OfexcelExtension>();
+	return db;
+}
+
+void CheckDatabaseFileName(const std::string &path) {
+	if (path == ":memory:") {
+		return;
+	}
+	const auto stem = Lower(fs::u8path(path).stem().u8string());
+	for (const auto *reserved : RESERVED_CATALOG_NAMES) {
+		if (stem == reserved) {
+			throw duckdb::InvalidInputException(
+			    "E_BAD_REQUEST: файл базы %s называется так же, как схема %s. DuckDB называет каталог по имени "
+			    "файла, и обращения к %s.* станут неоднозначными. Выберите другое имя, например %s",
+			    path, reserved, reserved, DATABASE_FILE_NAME);
+		}
+	}
+}
+
+PreparedDatabase PrepareDaemonDatabase(const StartupOptions &options) {
+	PreparedDatabase prepared;
+	prepared.db_path = options.db_path;
+	prepared.init_file = options.init_file;
+	std::string home;
+	if (prepared.db_path.empty()) {
+		home = EnsureHome();
+		prepared.db_path = JoinPath(home, DATABASE_FILE_NAME);
+	} else if (prepared.init_file.empty()) {
+		// An explicit --db needs no QEXCEL_HOME; only a default init.sql is looked for there.
+		try {
+			home = QexcelHome();
+		} catch (const std::exception &) {
+		}
+	}
+	if (prepared.init_file.empty() && !home.empty()) {
+		const auto default_init = JoinPath(home, INIT_FILE_NAME);
+		prepared.init_file = FileExists(default_init) ? default_init : "";
+	}
+	CheckDatabaseFileName(prepared.db_path);
+	// Read before the database is opened, so a missing file does not leave a
+	// fresh empty database behind.
+	const auto init_sql = prepared.init_file.empty() ? std::string() : ReadTextFile(prepared.init_file);
+	const int port = options.port.empty() ? -1 : ParsePort(options.port);
+
+	prepared.db = OpenDatabase(prepared.db_path);
+	duckdb::Connection connection(*prepared.db);
+	// Migrations before init.sql: what init.sql calls may write to meta.*.
+	RunMigrations(connection);
+	if (!init_sql.empty()) {
+		try {
+			Execute(connection, init_sql);
+		} catch (const std::exception &error) {
+			throw duckdb::InvalidInputException("E_BAD_REQUEST: ошибка в %s: %s", prepared.init_file,
+			                                    duckdb::ErrorData(error).Message());
+		}
+	}
+	if (port >= 0) {
+		Execute(connection, "SET ofexcel_port = " + std::to_string(port));
+	}
+	if (!options.origin.empty()) {
+		Execute(connection, "SET ofexcel_hosted_origin = " + SqlString(options.origin));
+	}
+	Harden(connection);
+	return prepared;
+}
+
+} // namespace ofexcel

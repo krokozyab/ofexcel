@@ -28,7 +28,7 @@
 | Хеш | SHA-256, строка из 64 шестнадцатеричных символов в нижнем регистре |
 | JSON в DuckDB | Колонки с JSON — тип `VARCHAR` (расширение `json` не линкуется) |
 | Порядок ключей | Где нужен канонический JSON — ключи отсортированы по байтам UTF-8, без пробелов |
-| Пути на диске | `QEXCEL_HOME`: macOS — `~/Library/Application Support/QExcel`, Windows — `%LOCALAPPDATA%\QExcel`. Проекты — `~/QExcel/projects/<проект>/queries/` |
+| Пути на диске | `QEXCEL_HOME`: macOS — `~/Library/Application Support/QExcel`, Windows — `%LOCALAPPDATA%\QExcel`; переменная окружения `QEXCEL_HOME` заменяет это значение (тесты, нестандартная установка). Каталог создаётся с правами `0700`. В нём: `data.duckdb` — база демона, `init.sql` — конфигурация (если есть), `tls/` — сертификаты (§8.1). Проекты — `~/QExcel/projects/<проект>/queries/` |
 
 ### 1.1 Хеш определения
 `definition_hash = sha256(bytes)`, где `bytes` — текст файла запроса после двух преобразований: удалить BOM UTF-8 в начале; заменить `\r\n` и одиночные `\r` на `\n`. Больше никаких нормализаций (пробелы, регистр, комментарии сохраняются).
@@ -949,6 +949,19 @@ type Binding = {
 | `ofexcel_missing()` | `TABLE` колонок `meta.missing` | Недостающие данные |
 
 Настройки (`SET …`): `ofexcel_port` (INTEGER, 47321), `ofexcel_profile` (`'hosted'`/`'local'`), `ofexcel_hosted_origin` (VARCHAR), `ofexcel_tls_dir` (VARCHAR, пусто = `QEXCEL_HOME/tls`; §8.1), `ofexcel_refresh_parallel` (INTEGER, 4), `ofexcel_run_timeout` (INTEGER секунд, 1800), `ofexcel_spill_max_rows` (INTEGER, 10000), `ofexcel_write_chunk_rows` (INTEGER, 5000), `ofexcel_dataset_ttl_days` (INTEGER, 30), `ofexcel_addin_dir` (VARCHAR, пусто).
+
+Все настройки `ofexcel_*` регистрируются с областью `GLOBAL`: обычный `SET` в `init.sql` действует на все соединения, включая те, что открывают HTTP-запросы. В DuckDB 2.0 настройка расширения без явной области — сессионная.
+
+**Запуск `ofexceld serve`** ([`--db PATH`] [`--init FILE`] [`--port N`] [`--origin URL`]), по шагам:
+1. База — `--db` или `QEXCEL_HOME/data.duckdb`. Имя файла без расширения, совпадающее (без учёта регистра) со схемой `meta`, `ds` или `xl_import`, — отказ `E_BAD_REQUEST` до создания файла: DuckDB называет каталог по имени файла, и `meta.*` стало бы неоднозначным.
+2. Миграции (§6.2).
+3. `init.sql` — `--init` или `QEXCEL_HOME/init.sql`, если файл есть. Названный в `--init`, но отсутствующий файл или ошибка в нём — отказ `E_BAD_REQUEST` с именем файла.
+4. Флаги `--port`, `--origin` — поверх значений из `init.sql`.
+5. `SET` из `SPEC.md` §8.4. `memory_limit = '2GB'` и `threads = 4` задаются при открытии базы, поэтому `init.sql` может их изменить; остальные — после флагов.
+6. `SET lock_configuration = true`; после этого `SET` отказывает в любом соединении.
+7. Сервер (§8.1).
+
+stdout — одна строка `listening on https://127.0.0.1:<port>`; строка запуска (версия, база, `init.sql`), остановка и ошибки — в stderr.
 
 ---
 

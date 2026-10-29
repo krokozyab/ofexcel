@@ -61,9 +61,12 @@ set(OFEXCEL_LINKED_EXTENSION_INCLUDES
 set(OFEXCEL_LINKED_EXTENSIONS ${EXTENSION_NAME} fusion_scanner_extension core_functions_extension)
 
 # ofexceld: the daemon. One binary with DuckDB and all three extensions inside.
-add_executable(ofexceld src/main.cpp)
+# src/daemon is the binary's own code, not the extension's: it loads the other
+# two extensions explicitly.
+set(OFEXCELD_SOURCES src/daemon/startup.cpp)
+add_executable(ofexceld src/main.cpp ${OFEXCELD_SOURCES})
 target_link_libraries(ofexceld PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS})
-target_include_directories(ofexceld PRIVATE src/include ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
+target_include_directories(ofexceld PRIVATE src src/include ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
 target_compile_features(ofexceld PRIVATE cxx_std_17)
 
 option(OFEXCEL_BUILD_TESTS "Build the ofexcel C++ tests" ON)
@@ -102,6 +105,21 @@ if(OFEXCEL_BUILD_TESTS)
                              ${OFEXCEL_FUSION_SCANNER_SRC}/src)
   target_compile_features(ofexcel_fusion_seam_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_fusion_seam_test COMMAND ofexcel_fusion_seam_test)
+
+  # The start sequence of `ofexceld serve` (src/daemon/startup.cpp), in process,
+  # against a temporary QEXCEL_HOME.
+  add_executable(ofexcel_daemon_test test/cpp/daemon_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_daemon_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS})
+  target_include_directories(ofexcel_daemon_test PRIVATE src src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
+  target_compile_features(ofexcel_daemon_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_daemon_test COMMAND ofexcel_daemon_test)
+
+  # `ofexceld serve` as a process: what it prints, the files it leaves, a live
+  # HTTPS request. A bash script, so not on Windows.
+  if(NOT WIN32)
+    add_test(NAME ofexcel_serve_test
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test/http/serve_test.sh $<TARGET_FILE:ofexceld>)
+  endif()
 
   # Checks against a real Fusion instance (tools/live_probe.cpp). Built with the
   # tests but deliberately not registered with ctest: it needs SSO and a network.

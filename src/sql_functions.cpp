@@ -265,22 +265,25 @@ void AddNamedParameter(TableFunction &function, const std::string &name, Logical
 
 void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	auto &config = duckdb::DBConfig::GetConfig(loader.GetDatabaseInstance());
-	config.AddExtensionOption("ofexcel_port", "Port ofexceld listens on at 127.0.0.1; 0 picks a free one.",
-	                          LogicalType::INTEGER, Value::INTEGER(DEFAULT_PORT));
-	config.AddExtensionOption("ofexcel_profile",
-	                          "How the Excel add-in is served: 'hosted' (HTTPS host, API over https://127.0.0.1) or "
-	                          "'local' (served by ofexceld over https://localhost).",
-	                          LogicalType::VARCHAR, Value("hosted"));
-	config.AddExtensionOption("ofexcel_tls_dir",
-	                          "Directory with the local CA and the server certificate (ofexceld install-cert); "
-	                          "empty means QEXCEL_HOME/tls.",
-	                          LogicalType::VARCHAR, Value(""));
-	config.AddExtensionOption("ofexcel_hosted_origin",
-	                          "The one Origin the hosted add-in is served from, e.g. https://intranet.example.com.",
-	                          LogicalType::VARCHAR, Value(""));
-	config.AddExtensionOption("ofexcel_probe_routes",
-	                          "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
-	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	// Global by default: they configure the daemon, and a plain SET in init.sql
+	// must reach the connections HTTP requests open later. DuckDB 2.0 makes an
+	// extension option session-scoped unless told otherwise.
+	const auto add = [&](const char *name, const char *description, LogicalType type, Value default_value) {
+		config.AddExtensionOption(name, description, std::move(type), default_value, nullptr, duckdb::SetScope::GLOBAL);
+	};
+	add("ofexcel_port", "Port ofexceld listens on at 127.0.0.1; 0 picks a free one.", LogicalType::INTEGER,
+	    Value::INTEGER(DEFAULT_PORT));
+	add("ofexcel_profile",
+	    "How the Excel add-in is served: 'hosted' (HTTPS host, API over https://127.0.0.1) or "
+	    "'local' (served by ofexceld over https://localhost).",
+	    LogicalType::VARCHAR, Value("hosted"));
+	add("ofexcel_tls_dir",
+	    "Directory with the local CA and the server certificate (ofexceld install-cert); empty means QEXCEL_HOME/tls.",
+	    LogicalType::VARCHAR, Value(""));
+	add("ofexcel_hosted_origin", "The one Origin the hosted add-in is served from, e.g. https://intranet.example.com.",
+	    LogicalType::VARCHAR, Value(""));
+	add("ofexcel_probe_routes", "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
+	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
 }
 
 void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {

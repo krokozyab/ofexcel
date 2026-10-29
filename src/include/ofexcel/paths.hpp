@@ -10,7 +10,8 @@
 
 namespace ofexcel {
 
-//! macOS ~/Library/Application Support/QExcel, Windows %LOCALAPPDATA%\QExcel,
+//! The environment variable QEXCEL_HOME if set; otherwise macOS
+//! ~/Library/Application Support/QExcel, Windows %LOCALAPPDATA%\QExcel,
 //! elsewhere $XDG_DATA_HOME/QExcel or ~/.local/share/QExcel. Throws
 //! std::runtime_error if the home directory cannot be determined.
 std::string QexcelHome();

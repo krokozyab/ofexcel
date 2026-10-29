@@ -54,6 +54,14 @@ std::string JoinPath(const std::string &directory, const std::string &name) {
 
 std::string QexcelHome() {
 #ifdef _WIN32
+	const auto overridden = EnvironmentVariable(L"QEXCEL_HOME");
+#else
+	const auto overridden = EnvironmentVariable("QEXCEL_HOME");
+#endif
+	if (!overridden.empty()) {
+		return overridden;
+	}
+#ifdef _WIN32
 	const auto local_app_data = EnvironmentVariable(L"LOCALAPPDATA");
 	if (local_app_data.empty()) {
 		throw std::runtime_error("Не задана переменная окружения LOCALAPPDATA: не найти каталог QExcel");

@@ -7,28 +7,28 @@
 //   ofexceld install-cert   [--dir DIR] [--no-trust]
 //   ofexceld uninstall-cert [--dir DIR] [--no-trust]
 //
-// `serve` runs until SIGINT or SIGTERM. `sql` runs statements and prints the
-// last result tab-separated, for scripts and smoke tests. `install-cert`
+// `serve` opens QEXCEL_HOME/data.duckdb and runs QEXCEL_HOME/init.sql unless
+// told otherwise, locks the configuration (src/daemon/startup.cpp) and runs
+// until SIGINT or SIGTERM. Its stdout carries one line, "listening on <url>",
+// for whatever started it; everything else goes to stderr. `sql` runs
+// statements on an in-memory database unless --db says otherwise and prints
+// the last result tab-separated, for scripts and smoke tests. `install-cert`
 // creates the local CA and the server certificate the daemon serves HTTPS
 // with, and trusts the CA for the current user; `uninstall-cert` undoes both.
 // DIR defaults to QEXCEL_HOME/tls; --no-trust leaves the trust store alone.
 
-#include "core_functions_extension.hpp"
+#include "daemon/startup.hpp"
 #include "duckdb.hpp"
-#include "fusion_scanner_extension.hpp"
 #include "ofexcel/db_util.hpp"
 #include "ofexcel/http_server.hpp"
 #include "ofexcel/local_ca.hpp"
 #include "ofexcel/paths.hpp"
 #include "ofexcel/trust_store.hpp"
 #include "ofexcel/version.hpp"
-#include "ofexcel_extension.hpp"
 
 #include <csignal>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -36,7 +36,8 @@ namespace {
 
 struct Arguments {
 	std::string command;
-	std::string db_path = ":memory:";
+	//! "": serve takes QEXCEL_HOME/data.duckdb, sql an in-memory database.
+	std::string db_path;
 	std::string init_file;
 	std::string port;
 	std::string origin;
@@ -101,81 +102,36 @@ bool ParseArguments(int argc, char **argv, Arguments &arguments) {
 	return true;
 }
 
-std::string ReadFile(const std::string &path) {
-	std::ifstream file(path, std::ios::binary);
-	if (!file) {
-		throw std::runtime_error("cannot read " + path);
-	}
-	std::ostringstream content;
-	content << file.rdbuf();
-	return content.str();
-}
-
-//! Quotes a value for use as a SQL string literal.
-std::string SqlString(const std::string &value) {
-	std::string quoted = "'";
-	for (const auto c : value) {
-		quoted += c;
-		if (c == '\'') {
-			quoted += '\'';
-		}
-	}
-	return quoted + "'";
-}
-
-//! Opens the database with every extension the daemon needs. Nothing is
-//! autoloaded or autoinstalled: what this binary can do is what is linked in.
-duckdb::unique_ptr<duckdb::DuckDB> OpenDatabase(const std::string &path) {
-	duckdb::DBConfig config;
-	config.SetOptionByName("autoinstall_known_extensions", duckdb::Value::BOOLEAN(false));
-	config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
-	auto db = duckdb::make_uniq<duckdb::DuckDB>(path == ":memory:" ? nullptr : path.c_str(), &config);
-	db->LoadStaticExtension<duckdb::CoreFunctionsExtension>();
-	db->LoadStaticExtension<duckdb::FusionScannerExtension>();
-	db->LoadStaticExtension<duckdb::OfexcelExtension>();
-	return db;
-}
-
-void RunInitFile(duckdb::Connection &connection, const std::string &path) {
-	if (!path.empty()) {
-		ofexcel::Execute(connection, ReadFile(path));
-	}
-}
-
-//! The settings SPEC.md §8.4 asks for once the database is configured. After
-//! lock_configuration nothing, including init.sql, can change a setting.
-void Harden(duckdb::Connection &connection) {
-	ofexcel::Execute(connection, "SET allow_community_extensions = false");
-	ofexcel::Execute(connection, "SET enable_external_access = false");
-	ofexcel::Execute(connection, "SET lock_configuration = true");
-}
-
 void HandleStopSignal(int) {
 	ofexcel::HttpServer::RequestStop();
 }
 
 int Serve(const Arguments &arguments) {
-	auto db = OpenDatabase(arguments.db_path);
-	duckdb::Connection connection(*db);
-	RunInitFile(connection, arguments.init_file);
-	if (!arguments.port.empty()) {
-		ofexcel::Execute(connection, "SET ofexcel_port = " + std::to_string(std::stoi(arguments.port)));
-	}
-	if (!arguments.origin.empty()) {
-		ofexcel::Execute(connection, "SET ofexcel_hosted_origin = " + SqlString(arguments.origin));
-	}
-	Harden(connection);
+	ofexcel::StartupOptions options;
+	options.db_path = arguments.db_path;
+	options.init_file = arguments.init_file;
+	options.port = arguments.port;
+	options.origin = arguments.origin;
+	auto prepared = ofexcel::PrepareDaemonDatabase(options);
+	std::cerr << "ofexceld " << ofexcel::VersionWithBuildStamp() << ": database " << prepared.db_path << ", init "
+	          << (prepared.init_file.empty() ? "none" : prepared.init_file) << std::endl;
 
 	std::signal(SIGINT, HandleStopSignal);
 	std::signal(SIGTERM, HandleStopSignal);
 
 	// ofexcel_start rather than ofexcel_serve, so the URL can be printed
 	// before this thread blocks.
-	const auto rows = ofexcel::QueryRows(connection, "SELECT url FROM ofexcel_start()");
-	std::cout << "ofexceld " << ofexcel::VersionWithBuildStamp() << " listening on " << rows.at(0).at(0).ToString()
-	          << std::endl;
+	duckdb::Connection connection(*prepared.db);
+	auto started = connection.Query("SELECT url FROM ofexcel_start()");
+	if (started->HasError()) {
+		// The error as DuckDB phrased it, without QueryRows' wrapping.
+		std::cerr << "ofexceld: " << started->GetError() << std::endl;
+		return 1;
+	}
+	const auto chunk = started->Fetch();
+	std::cout << "listening on " << chunk->GetValue(0, 0).ToString() << std::endl;
 	ofexcel::HttpServer::Get().Wait();
-	std::cout << "ofexceld stopped" << std::endl;
+	std::cerr << "ofexceld stopped" << std::endl;
 	return 0;
 }
 
@@ -184,9 +140,13 @@ int RunSql(const Arguments &arguments) {
 		PrintUsage();
 		return 2;
 	}
-	auto db = OpenDatabase(arguments.db_path);
+	const auto db_path = arguments.db_path.empty() ? std::string(":memory:") : arguments.db_path;
+	ofexcel::CheckDatabaseFileName(db_path);
+	auto db = ofexcel::OpenDatabase(db_path);
 	duckdb::Connection connection(*db);
-	RunInitFile(connection, arguments.init_file);
+	if (!arguments.init_file.empty()) {
+		ofexcel::Execute(connection, ofexcel::ReadTextFile(arguments.init_file));
+	}
 	auto result = connection.Query(arguments.sql);
 	if (result->HasError()) {
 		std::cerr << result->GetError() << std::endl;

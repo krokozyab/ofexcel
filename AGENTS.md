@@ -46,11 +46,18 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
                                                             # HTTPS on an ephemeral port
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
+./build/release/extension/ofexcel/ofexcel_daemon_test       # serve's start sequence, in process
+bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
+`make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
+`./build/release/test/unittest "test/*"` directly — it is the same set.
 
 Running the daemon by hand. `install-cert` creates the local CA in `QEXCEL_HOME/tls` and trusts
 it for the current user; macOS asks for your password. `--no-trust --dir DIR` skips the trust
-step and writes elsewhere, which is what tests and scripts use.
+step and writes elsewhere, which is what tests and scripts use. `serve` opens
+`QEXCEL_HOME/data.duckdb` and runs `QEXCEL_HOME/init.sql` if it exists (`--db`, `--init` override
+them); set the environment variable `QEXCEL_HOME` to work in a scratch directory. Its stdout is
+the one line `listening on <url>`; everything else is on stderr.
 ```sh
 ./build/release/extension/ofexcel/ofexceld install-cert
 ./build/release/extension/ofexcel/ofexceld serve --origin https://localhost:3000 --port 47321
@@ -64,6 +71,7 @@ curl -s -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/health
 src/ofexcel_extension.cpp   extension entry point: registers settings and functions
 src/sql_functions.cpp       ofexcel_* SQL functions and settings (CONTRACTS.md §13)
 src/main.cpp                ofexceld command line
+src/daemon/startup.cpp      how serve opens, initialises and locks its database (CONTRACTS.md §13)
 src/db_util.cpp             Execute / QueryRows over DuckDB 2.0's chunked results
 src/paths.cpp               QEXCEL_HOME and the paths under it — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
@@ -76,6 +84,7 @@ src/server/routes_*.cpp     one file per route group
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON
 test/sql/                   sqllogictests
 test/cpp/                   C++ suites; test_support.hpp is shared
+test/http/                  scripts that run ofexceld as a process (POSIX only)
 tools/live_probe.cpp        ofexcel_live_probe: checks against a real Fusion (not in ctest)
 tools/phase0/               phase 0 probe scripts; results in docs/PHASE0_REPORT.md
 docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE0_REPORT.md
@@ -109,6 +118,11 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
 - Bind declares columns and validates arguments. The action — starting a server, running a
   query — happens in the global init, which runs when the query executes. Bind also runs for
   `EXPLAIN` and prepared statements. `sql_functions.cpp` shows the pattern.
+- A new `ofexcel_*` setting goes through the `add` helper in `RegisterSettings`, which makes it
+  `GLOBAL`. DuckDB 2.0's default for extension options is the session, and a setting from
+  `init.sql` would then never reach the connections HTTP requests open.
+- Nothing may `SET` after start: `serve` ends its setup with `lock_configuration = true`. A route
+  that needs a per-request value takes it as a parameter, not as a setting.
 
 ### HTTP routes
 - One file per route group, `src/server/routes_<group>.cpp`; see the comment in `routes.hpp`.
