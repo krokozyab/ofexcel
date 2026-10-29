@@ -48,6 +48,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_query_file_test   # pure: query file header, P1–P16
 ./build/release/extension/ofexcel/ofexcel_param_values_test # pure: parameter values from JSON
 ./build/release/extension/ofexcel/ofexcel_result_types_test # pure: T1–T26, J1–J8
+./build/release/extension/ofexcel/ofexcel_oracle_render_test  # pure: R1–R30, list chunks, q-literals
 ./build/release/extension/ofexcel/ofexcel_local_types_test  # DuckDB types of Local results
 ./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
                                                             # HTTPS on an ephemeral port
@@ -85,6 +86,7 @@ src/catalog/contract_types.cpp  parameter / column types, canonical text values 
 src/catalog/query_file.cpp  query file header and body (§2) — pure
 src/catalog/param_values.cpp  parameter values from JSON, E_PARAM_* (§3.1) — pure
 src/catalog/result_types.cpp  Oracle column types, stored values, JSON cells (§3.2–3.3) — pure
+src/catalog/oracle_render.cpp  Oracle SQL tokenizer and parameter literals (§4) — pure
 src/run/local_types.cpp     DuckDB type → contract type for Local results (§3.4) — knows DuckDB
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)

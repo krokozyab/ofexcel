@@ -32,6 +32,7 @@ set(EXTENSION_SOURCES
         src/catalog/query_file.cpp
         src/catalog/param_values.cpp
         src/catalog/result_types.cpp
+        src/catalog/oracle_render.cpp
         src/run/local_types.cpp
         src/meta/migrations.cpp
         src/security/local_ca.cpp
@@ -130,6 +131,15 @@ if(OFEXCEL_BUILD_TESTS)
   target_include_directories(ofexcel_result_types_test PRIVATE src/include)
   target_compile_features(ofexcel_result_types_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_result_types_test COMMAND ofexcel_result_types_test)
+
+  # Pure: Oracle SQL tokenizer and literals, vectors R1–R30.
+  add_executable(ofexcel_oracle_render_test test/cpp/oracle_render_test.cpp src/catalog/oracle_render.cpp
+                 src/catalog/param_values.cpp src/catalog/query_file.cpp src/catalog/contract_types.cpp
+                 src/catalog/hashing.cpp src/catalog/utf8.cpp)
+  target_link_libraries(ofexcel_oracle_render_test PRIVATE OpenSSL::Crypto)
+  target_include_directories(ofexcel_oracle_render_test PRIVATE src/include)
+  target_compile_features(ofexcel_oracle_render_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_oracle_render_test COMMAND ofexcel_oracle_render_test)
 
   # DuckDB types of Local results (§3.4). Links DuckDB, opens no database.
   add_executable(ofexcel_local_types_test test/cpp/local_types_test.cpp src/run/local_types.cpp
