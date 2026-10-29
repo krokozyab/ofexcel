@@ -26,6 +26,7 @@ set(EXTENSION_SOURCES
         src/version.cpp
         src/db_util.cpp
         src/paths.cpp
+        src/catalog/hashing.cpp
         src/meta/migrations.cpp
         src/security/local_ca.cpp
         src/security/trust_store.cpp
@@ -86,6 +87,13 @@ if(OFEXCEL_BUILD_TESTS)
   target_include_directories(ofexcel_tls_test PRIVATE src/include)
   target_compile_features(ofexcel_tls_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_tls_test COMMAND ofexcel_tls_test)
+
+  # Pure: definition_hash, canonical_params, instance_key.
+  add_executable(ofexcel_hashing_test test/cpp/hashing_test.cpp src/catalog/hashing.cpp)
+  target_link_libraries(ofexcel_hashing_test PRIVATE OpenSSL::Crypto)
+  target_include_directories(ofexcel_hashing_test PRIVATE src/include)
+  target_compile_features(ofexcel_hashing_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_hashing_test COMMAND ofexcel_hashing_test)
 
   # Starts the HTTPS server inside an in-memory database and talks to it over
   # 127.0.0.1 on an ephemeral port. Its certificates come from running the

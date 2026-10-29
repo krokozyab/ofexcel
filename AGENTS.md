@@ -43,6 +43,7 @@ Single tests:
 ./build/release/test/unittest test/sql/ofexcel.test
 ./build/release/extension/ofexcel/ofexcel_guard_test        # pure, < 1 s
 ./build/release/extension/ofexcel/ofexcel_tls_test          # pure: local CA and certificates
+./build/release/extension/ofexcel/ofexcel_hashing_test      # pure: hashes and canonical JSON
 ./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
                                                             # HTTPS on an ephemeral port
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
@@ -74,6 +75,7 @@ src/main.cpp                ofexceld command line
 src/daemon/startup.cpp      how serve opens, initialises and locks its database (CONTRACTS.md §13)
 src/db_util.cpp             Execute / QueryRows over DuckDB 2.0's chunked results
 src/paths.cpp               QEXCEL_HOME and the paths under it — pure
+src/catalog/hashing.cpp     definition_hash, canonical_params, instance_key (CONTRACTS.md §1.1–1.3) — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only
 src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS keychain, Windows ROOT)
@@ -100,8 +102,8 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
   not what.
 - DuckDB 2.0 results are read chunk by chunk (`Fetch()`); there is no `MaterializedQueryResult`.
   Use `QueryRows` (metadata-sized results) or read chunks yourself.
-- Code under `src/server/request_guard.cpp`, `src/security/`, `src/paths.cpp` and any future pure
-  module must not include `duckdb.hpp` or `httplib.h`, so it stays testable in a second.
+- Code under `src/server/request_guard.cpp`, `src/security/`, `src/paths.cpp`,
+  `src/catalog/hashing.cpp` and any future pure module must not include `duckdb.hpp` or `httplib.h`, so it stays testable in a second.
 - Paths are UTF-8 `std::string`; open files through `std::filesystem::u8path`. A Windows user
   name can be Cyrillic, and a narrow path would go through the ANSI code page.
 - `<wincrypt.h>` and OpenSSL headers never meet in one file: wincrypt's macros (`X509_NAME`…)
