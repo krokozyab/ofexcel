@@ -87,6 +87,13 @@ if(OFEXCEL_BUILD_TESTS)
                              ${OFEXCEL_FUSION_SCANNER_SRC}/src)
   target_compile_features(ofexcel_fusion_seam_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_fusion_seam_test COMMAND ofexcel_fusion_seam_test)
+
+  # Checks against a real Fusion instance (tools/live_probe.cpp). Built with the
+  # tests but deliberately not registered with ctest: it needs SSO and a network.
+  add_executable(ofexcel_live_probe tools/live_probe.cpp)
+  target_link_libraries(ofexcel_live_probe PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS})
+  target_include_directories(ofexcel_live_probe PRIVATE src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
+  target_compile_features(ofexcel_live_probe PRIVATE cxx_std_17)
 endif()
 
 install(

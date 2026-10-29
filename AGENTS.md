@@ -66,7 +66,9 @@ src/server/routes_*.cpp     one file per route group
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON
 test/sql/                   sqllogictests
 test/cpp/                   C++ suites; test_support.hpp is shared
-docs/                       SPEC.md, CONTRACTS.md
+tools/live_probe.cpp        ofexcel_live_probe: checks against a real Fusion (not in ctest)
+tools/phase0/               phase 0 probe scripts; results in docs/PHASE0_REPORT.md
+docs/                       SPEC.md, CONTRACTS.md, PHASE0_REPORT.md
 ```
 
 ## Rules
