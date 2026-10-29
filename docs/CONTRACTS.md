@@ -604,6 +604,16 @@ UPDATE meta.state SET value = CAST(CAST(value AS BIGINT) + 1 AS VARCHAR) WHERE k
 
 Валидатор — дополнительная защита, а не песочница (`SPEC.md` §8.4). Независимо от него демон работает с `enable_external_access = false`.
 
+**Уточнения реализации** (`src/run/local_validator.cpp`):
+- Разбор — встроенной грамматикой DuckDB (`Parser::GetBuiltinParser`), без расширений парсера. Текст, который не разбирается, — `E_SQL_COMPILE` без номера правила.
+- Нарушение сообщается правилом, которое нарушено, даже внутри подзапроса или CTE (L16 — `V6`): V9 — это способ обхода, а не отдельный отказ. Сообщается первое найденное нарушение.
+- V2 касается и источников в `FROM`: `SUMMARIZE`, `DESCRIBE`, `SHOW` и вложенные `INSERT … RETURNING` — тоже V2.
+- V3: имена таблиц, CTE и `@depends` сравниваются без учёта регистра. CTE виден в своём `WITH` и ниже, но не снаружи подзапроса, где объявлен; CTE видит соседей по `WITH` и (в `WITH RECURSIVE`) себя.
+- V6: табличная функция со схемой (`main.range`) — тоже V6.
+- V7 проверяет имя функции без схемы и без учёта регистра: `OFEXCEL_VERSION()` — V7.
+- V8: `$имя` сравнивается с `@param` без учёта регистра; `?` и `$1` — V8.
+- Проверяются все выражения: список `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY`/`LIMIT`, условия `JOIN`, `VALUES`, аргументы табличных функций, `PIVOT`.
+
 ---
 
 ## 8. HTTP API
@@ -977,7 +987,7 @@ type Binding = {
 | `ofexcel_set_environment(name VARCHAR, environment VARCHAR)` | `TABLE(name VARCHAR, environment VARCHAR)` | Метка окружения подключения |
 | `ofexcel_queries()` | `TABLE(query_id, definition_hash, version, engine, source_kind, source_ref, trusted BOOLEAN)` | Каталог запросов |
 | `ofexcel_render_oracle(sql VARCHAR, params := STRUCT/MAP)` | `TABLE(rendered VARCHAR, warnings VARCHAR[])` | Подстановка по §4 без выполнения; `@param` выводятся из типов значений, если запроса нет — для отладки |
-| `ofexcel_validate(sql VARCHAR, depends := VARCHAR[], params := VARCHAR[])` | `TABLE(ok BOOLEAN, rule VARCHAR, message VARCHAR)` | Валидация по §7 |
+| `ofexcel_validate(sql VARCHAR, depends := VARCHAR[], params := VARCHAR[])` | `TABLE(ok BOOLEAN, rule VARCHAR, message VARCHAR)` | Валидация по §7. Элемент `depends` — `query_id`, `query_id(…)` (аргументы не читаются) или `xl_import.имя`. Одна строка: при `ok` — `rule` и `message` NULL; при отказе `message` начинается с кода (`E_VALIDATION: V3: …`, `E_SQL_COMPILE: …`), `rule` — `V1`…`V8` или NULL для `E_SQL_COMPILE` |
 | `ofexcel_run(query_id VARCHAR, params := STRUCT, connection := VARCHAR)` | `TABLE(run_id, status, rows_fetched, truncated, error_code, error_message)` | Запуск и ожидание завершения |
 | `ofexcel_runs()` | `TABLE` колонок `meta.runs` | История |
 | `ofexcel_datasets()` | `TABLE` колонок `meta.dataset_instances` | Экземпляры |

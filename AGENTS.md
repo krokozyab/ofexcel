@@ -50,6 +50,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_result_types_test # pure: T1–T26, J1–J8
 ./build/release/extension/ofexcel/ofexcel_oracle_render_test  # pure: R1–R30, list chunks, q-literals
 ./build/release/extension/ofexcel/ofexcel_local_types_test  # DuckDB types of Local results
+./build/release/extension/ofexcel/ofexcel_local_validator_test  # L1–L17 and more per rule
 ./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
                                                             # HTTPS on an ephemeral port
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
@@ -88,6 +89,7 @@ src/catalog/param_values.cpp  parameter values from JSON, E_PARAM_* (§3.1) — 
 src/catalog/result_types.cpp  Oracle column types, stored values, JSON cells (§3.2–3.3) — pure
 src/catalog/oracle_render.cpp  Oracle SQL tokenizer and parameter literals (§4) — pure
 src/run/local_types.cpp     DuckDB type → contract type for Local results (§3.4) — knows DuckDB
+src/run/local_validator.cpp Local SQL validation V1–V9 over duckdb::Parser (§7)
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only

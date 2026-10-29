@@ -1,0 +1,50 @@
+# name: test/sql/validate.test
+# description: ofexcel_validate checks Local SQL by CONTRACTS.md §7 (vectors L1, L5, L8, L10)
+# group: [ofexcel]
+
+require ofexcel
+
+# L1
+query TTT
+SELECT ok, rule, message FROM ofexcel_validate('SELECT * FROM ap_invoices',
+    depends := ['ap_invoices(bu := $bu)', 'xl_import.bank'], params := ['bu']);
+----
+true	NULL	NULL
+
+# L5
+query TT
+SELECT ok, rule FROM ofexcel_validate('CREATE TABLE x AS SELECT 1',
+    depends := ['ap_invoices', 'xl_import.bank'], params := ['bu']);
+----
+false	V2
+
+# L8
+query TTT
+SELECT ok, rule, message LIKE 'E_VALIDATION: V5:%data.csv' FROM ofexcel_validate('SELECT * FROM ''data.csv''',
+    depends := ['ap_invoices', 'xl_import.bank'], params := ['bu']);
+----
+false	V5	true
+
+# L10
+query TT
+SELECT ok, rule FROM ofexcel_validate('SELECT * FROM oracle_fusion_query(''SELECT 1 FROM dual'')',
+    depends := ['ap_invoices', 'xl_import.bank'], params := ['bu']);
+----
+false	V6
+
+# Without depends, a table is undeclared.
+query TT
+SELECT ok, rule FROM ofexcel_validate('SELECT * FROM ap_invoices');
+----
+false	V3
+
+# Text that does not parse has no rule.
+query TT
+SELECT ok, message LIKE 'E_SQL_COMPILE:%' FROM ofexcel_validate('SELEC 1');
+----
+false	true
+
+statement error
+SELECT * FROM ofexcel_validate(NULL);
+----
+E_BAD_REQUEST

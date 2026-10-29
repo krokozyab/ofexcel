@@ -2,6 +2,7 @@
 
 #include "duckdb/function/table_function.hpp"
 #include "ofexcel/http_server.hpp"
+#include "ofexcel/local_validator.hpp"
 #include "ofexcel/paths.hpp"
 #include "ofexcel/version.hpp"
 
@@ -233,6 +234,60 @@ duckdb::unique_ptr<GlobalTableFunctionState> StatusInit(ClientContext &context, 
 	return std::move(state);
 }
 
+// --- ofexcel_validate --------------------------------------------------------
+
+struct ValidateBindData : public duckdb::TableFunctionData {
+	std::string sql;
+	std::vector<std::string> depends;
+	std::vector<std::string> params;
+};
+
+std::vector<std::string> StringList(TableFunctionBindInput &input, const char *name) {
+	std::vector<std::string> strings;
+	const auto entry = input.named_parameters.find(name);
+	if (entry == input.named_parameters.end() || entry->second.IsNull()) {
+		return strings;
+	}
+	for (const auto &child : duckdb::ListValue::GetChildren(entry->second)) {
+		if (child.IsNull()) {
+			throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_validate: в %s не может быть NULL", name);
+		}
+		strings.push_back(child.ToString());
+	}
+	return strings;
+}
+
+duckdb::unique_ptr<FunctionData> ValidateBind(ClientContext &, TableFunctionBindInput &input,
+                                              duckdb::vector<LogicalType> &return_types,
+                                              duckdb::vector<Identifier> &names) {
+	if (input.inputs.empty() || input.inputs[0].IsNull()) {
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_validate: текст SQL не может быть NULL");
+	}
+	auto bind_data = duckdb::make_uniq<ValidateBindData>();
+	bind_data->sql = input.inputs[0].ToString();
+	bind_data->depends = StringList(input, "depends");
+	bind_data->params = StringList(input, "params");
+	names = {"ok", "rule", "message"};
+	return_types = {LogicalType::BOOLEAN, LogicalType::VARCHAR, LogicalType::VARCHAR};
+	return std::move(bind_data);
+}
+
+//! One row: ok, and for a refusal the rule (V1–V8, NULL if the text does not
+//! parse) and "E_VALIDATION: …" or "E_SQL_COMPILE: …".
+duckdb::unique_ptr<GlobalTableFunctionState> ValidateInit(ClientContext &, TableFunctionInitInput &input) {
+	const auto &bind_data = input.bind_data->Cast<ValidateBindData>();
+	const auto verdict =
+	    ValidateLocalSql(bind_data.sql, LocalSqlScope::FromLists(bind_data.depends, bind_data.params));
+	auto state = duckdb::make_uniq<RowsState>();
+	if (verdict.ok) {
+		state->rows.push_back({Value::BOOLEAN(true), Value(LogicalType::VARCHAR), Value(LogicalType::VARCHAR)});
+	} else {
+		state->rows.push_back({Value::BOOLEAN(false), verdict.rule.empty() ? Value(LogicalType::VARCHAR) : Value(verdict.rule),
+		                       Value(verdict.code + ": " + verdict.message)});
+	}
+	return std::move(state);
+}
+
 // --- ofexcel_version ---------------------------------------------------------
 
 void VersionFunction(DataChunk &, ExpressionState &, Vector &result) {
@@ -297,6 +352,11 @@ void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {
 	auto serve = RowsFunction("ofexcel_serve", ServeBind, ServeInit);
 	AddNamedParameter(serve, "port", LogicalType::INTEGER);
 	loader.RegisterFunction(serve);
+
+	TableFunction validate("ofexcel_validate", {LogicalType::VARCHAR}, ScanRows, ValidateBind, ValidateInit);
+	AddNamedParameter(validate, "depends", LogicalType::LIST(LogicalType::VARCHAR));
+	AddNamedParameter(validate, "params", LogicalType::LIST(LogicalType::VARCHAR));
+	loader.RegisterFunction(validate);
 
 	loader.RegisterFunction(RowsFunction("ofexcel_stop", StopBind, StopInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_status", StatusBind, StatusInit));
