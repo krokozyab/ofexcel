@@ -30,6 +30,9 @@ set(EXTENSION_SOURCES
         src/catalog/hashing.cpp
         src/catalog/contract_types.cpp
         src/catalog/query_file.cpp
+        src/catalog/param_values.cpp
+        src/catalog/result_types.cpp
+        src/run/local_types.cpp
         src/meta/migrations.cpp
         src/security/local_ca.cpp
         src/security/trust_store.cpp
@@ -112,6 +115,29 @@ if(OFEXCEL_BUILD_TESTS)
   target_include_directories(ofexcel_query_file_test PRIVATE src/include)
   target_compile_features(ofexcel_query_file_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_query_file_test COMMAND ofexcel_query_file_test)
+
+  # Pure: parameter values from JSON (§3.1).
+  add_executable(ofexcel_param_values_test test/cpp/param_values_test.cpp src/catalog/param_values.cpp
+                 src/catalog/contract_types.cpp src/catalog/hashing.cpp src/catalog/utf8.cpp)
+  target_link_libraries(ofexcel_param_values_test PRIVATE OpenSSL::Crypto)
+  target_include_directories(ofexcel_param_values_test PRIVATE src/include)
+  target_compile_features(ofexcel_param_values_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_param_values_test COMMAND ofexcel_param_values_test)
+
+  # Pure: Oracle column types and JSON cells, vectors T1–T26 and J1–J8.
+  add_executable(ofexcel_result_types_test test/cpp/result_types_test.cpp src/catalog/result_types.cpp
+                 src/catalog/contract_types.cpp src/catalog/utf8.cpp)
+  target_include_directories(ofexcel_result_types_test PRIVATE src/include)
+  target_compile_features(ofexcel_result_types_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_result_types_test COMMAND ofexcel_result_types_test)
+
+  # DuckDB types of Local results (§3.4). Links DuckDB, opens no database.
+  add_executable(ofexcel_local_types_test test/cpp/local_types_test.cpp src/run/local_types.cpp
+                 src/catalog/contract_types.cpp src/catalog/utf8.cpp)
+  target_link_libraries(ofexcel_local_types_test PRIVATE duckdb_static)
+  target_include_directories(ofexcel_local_types_test PRIVATE src/include)
+  target_compile_features(ofexcel_local_types_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_local_types_test COMMAND ofexcel_local_types_test)
 
   # Starts the HTTPS server inside an in-memory database and talks to it over
   # 127.0.0.1 on an ephemeral port. Its certificates come from running the

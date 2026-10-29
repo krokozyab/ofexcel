@@ -243,47 +243,23 @@ bool CanonicalTimestamp(const std::string &text, std::string &canonical) {
 	return true;
 }
 
-//! -?(digits[.digits*] | .digits), no exponent.
-bool IsPlainDecimal(const std::string &text) {
-	size_t i = text.empty() || text[0] != '-' ? 0 : 1;
-	size_t int_digits = 0;
-	while (i < text.size() && IsDigit(text[i])) {
-		i++;
-		int_digits++;
-	}
-	size_t frac_digits = 0;
-	if (i < text.size() && text[i] == '.') {
-		i++;
-		while (i < text.size() && IsDigit(text[i])) {
-			i++;
-			frac_digits++;
-		}
-	}
-	return i == text.size() && int_digits + frac_digits > 0;
-}
-
 bool CanonicalDecimal(const ParamType &type, const std::string &text, std::string &canonical, std::string &error) {
 	if (!IsPlainDecimal(text)) {
 		error = "«" + text + "» — не десятичное число";
 		return false;
 	}
-	const bool negative = text[0] == '-';
-	const auto body = text.substr(negative ? 1 : 0);
+	canonical = CanonicalDecimalText(text);
+	const auto body = canonical[0] == '-' ? canonical.substr(1) : canonical;
 	const auto dot = body.find('.');
-	auto integer = body.substr(0, dot);
-	auto fraction = dot == std::string::npos ? std::string() : body.substr(dot + 1);
-	integer = integer.find_first_not_of('0') == std::string::npos ? "" : StripLeadingZeros(integer);
-	while (!fraction.empty() && fraction.back() == '0') {
-		fraction.pop_back();
-	}
+	const size_t integer_digits = body == "0" || body.compare(0, 2, "0.") == 0 ? 0 : body.substr(0, dot).size();
+	const size_t fraction_digits = dot == std::string::npos ? 0 : body.size() - dot - 1;
 	// As DECIMAL(p,s) in SQL: p-s digits before the point, s after it.
-	if (integer.size() > static_cast<size_t>(type.precision - type.scale) || fraction.size() > static_cast<size_t>(type.scale)) {
+	if (integer_digits > static_cast<size_t>(type.precision - type.scale) ||
+	    fraction_digits > static_cast<size_t>(type.scale)) {
 		error = "«" + text + "» не помещается в " + type.ToString() + ": до точки не больше " +
 		        std::to_string(type.precision - type.scale) + " цифр, после — не больше " + std::to_string(type.scale);
 		return false;
 	}
-	const bool zero = integer.empty() && fraction.empty();
-	canonical = (negative && !zero ? "-" : "") + (integer.empty() ? "0" : integer) + (fraction.empty() ? "" : "." + fraction);
 	return true;
 }
 
@@ -323,6 +299,42 @@ bool CanonicalString(const std::string &text, std::string &error) {
 }
 
 } // namespace
+
+bool IsDateAt(const std::string &text, size_t from) {
+	return IsValidDate(text, from);
+}
+
+bool IsPlainDecimal(const std::string &text) {
+	size_t i = text.empty() || text[0] != '-' ? 0 : 1;
+	size_t int_digits = 0;
+	while (i < text.size() && IsDigit(text[i])) {
+		i++;
+		int_digits++;
+	}
+	size_t frac_digits = 0;
+	if (i < text.size() && text[i] == '.') {
+		i++;
+		while (i < text.size() && IsDigit(text[i])) {
+			i++;
+			frac_digits++;
+		}
+	}
+	return i == text.size() && int_digits + frac_digits > 0;
+}
+
+std::string CanonicalDecimalText(const std::string &plain) {
+	const bool negative = !plain.empty() && plain[0] == '-';
+	const auto body = plain.substr(negative ? 1 : 0);
+	const auto dot = body.find('.');
+	auto integer = body.substr(0, dot);
+	auto fraction = dot == std::string::npos ? std::string() : body.substr(dot + 1);
+	integer = integer.find_first_not_of('0') == std::string::npos ? "" : StripLeadingZeros(integer);
+	while (!fraction.empty() && fraction.back() == '0') {
+		fraction.pop_back();
+	}
+	const bool zero = integer.empty() && fraction.empty();
+	return (negative && !zero ? "-" : "") + (integer.empty() ? "0" : integer) + (fraction.empty() ? "" : "." + fraction);
+}
 
 std::string ParamType::ToString() const {
 	switch (kind) {

@@ -46,6 +46,9 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_hashing_test      # pure: hashes and canonical JSON
 ./build/release/extension/ofexcel/ofexcel_contract_types_test  # pure: types, canonical text values
 ./build/release/extension/ofexcel/ofexcel_query_file_test   # pure: query file header, P1–P16
+./build/release/extension/ofexcel/ofexcel_param_values_test # pure: parameter values from JSON
+./build/release/extension/ofexcel/ofexcel_result_types_test # pure: T1–T26, J1–J8
+./build/release/extension/ofexcel/ofexcel_local_types_test  # DuckDB types of Local results
 ./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
                                                             # HTTPS on an ephemeral port
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
@@ -80,6 +83,9 @@ src/paths.cpp               QEXCEL_HOME and the paths under it — pure
 src/catalog/hashing.cpp     definition_hash, canonical_params, instance_key (CONTRACTS.md §1.1–1.3) — pure
 src/catalog/contract_types.cpp  parameter / column types, canonical text values (§2.2, §3.1) — pure
 src/catalog/query_file.cpp  query file header and body (§2) — pure
+src/catalog/param_values.cpp  parameter values from JSON, E_PARAM_* (§3.1) — pure
+src/catalog/result_types.cpp  Oracle column types, stored values, JSON cells (§3.2–3.3) — pure
+src/run/local_types.cpp     DuckDB type → contract type for Local results (§3.4) — knows DuckDB
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only

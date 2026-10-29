@@ -53,6 +53,17 @@ bool ParseColumnType(const std::string &text, ColumnType &type, std::string &err
 //! Returns false and sets `error` if §3.1 refuses it. `type` must not be LIST.
 bool CanonicalizeText(const ParamType &type, const std::string &text, std::string &canonical, std::string &error);
 
+//! YYYY-MM-DD at `text[from]` naming a date that exists, years 0001–9999.
+//! Looks at those ten characters only.
+bool IsDateAt(const std::string &text, size_t from = 0);
+
+//! -?(digits[.digits*] | .digits): a decimal without an exponent.
+bool IsPlainDecimal(const std::string &text);
+
+//! `plain` (IsPlainDecimal) without leading zeros, trailing fraction zeros or
+//! a sign on zero: "-0012.500" → "-12.5", ".84" → "0.84", "-0.0" → "0".
+std::string CanonicalDecimalText(const std::string &plain);
+
 //! The shortest decimal text that reads back as `value`, in std::to_chars'
 //! plain format: fixed or scientific, whichever is shorter, fixed on a tie.
 //! -0 is written "0". `value` must be finite. (std::to_chars for double needs
