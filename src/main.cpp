@@ -4,19 +4,28 @@
 //   ofexceld version
 //   ofexceld serve [--db PATH] [--init FILE] [--port N] [--origin URL]
 //   ofexceld sql   [--db PATH] [--init FILE] "SQL"
+//   ofexceld install-cert   [--dir DIR] [--no-trust]
+//   ofexceld uninstall-cert [--dir DIR] [--no-trust]
 //
 // `serve` runs until SIGINT or SIGTERM. `sql` runs statements and prints the
-// last result tab-separated, for scripts and smoke tests.
+// last result tab-separated, for scripts and smoke tests. `install-cert`
+// creates the local CA and the server certificate the daemon serves HTTPS
+// with, and trusts the CA for the current user; `uninstall-cert` undoes both.
+// DIR defaults to QEXCEL_HOME/tls; --no-trust leaves the trust store alone.
 
 #include "core_functions_extension.hpp"
 #include "duckdb.hpp"
 #include "fusion_scanner_extension.hpp"
 #include "ofexcel/db_util.hpp"
 #include "ofexcel/http_server.hpp"
+#include "ofexcel/local_ca.hpp"
+#include "ofexcel/paths.hpp"
+#include "ofexcel/trust_store.hpp"
 #include "ofexcel/version.hpp"
 #include "ofexcel_extension.hpp"
 
 #include <csignal>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -32,13 +41,17 @@ struct Arguments {
 	std::string port;
 	std::string origin;
 	std::string sql;
+	std::string tls_dir;
+	bool no_trust = false;
 };
 
 void PrintUsage() {
 	std::cerr << "usage:\n"
 	             "  ofexceld version\n"
 	             "  ofexceld serve [--db PATH] [--init FILE] [--port N] [--origin URL]\n"
-	             "  ofexceld sql   [--db PATH] [--init FILE] \"SQL\"\n";
+	             "  ofexceld sql   [--db PATH] [--init FILE] \"SQL\"\n"
+	             "  ofexceld install-cert   [--dir DIR] [--no-trust]\n"
+	             "  ofexceld uninstall-cert [--dir DIR] [--no-trust]\n";
 }
 
 bool ParseArguments(int argc, char **argv, Arguments &arguments) {
@@ -72,6 +85,12 @@ bool ParseArguments(int argc, char **argv, Arguments &arguments) {
 			if (!take_value(arguments.origin)) {
 				return false;
 			}
+		} else if (argument == "--dir") {
+			if (!take_value(arguments.tls_dir)) {
+				return false;
+			}
+		} else if (argument == "--no-trust") {
+			arguments.no_trust = true;
 		} else if (arguments.command == "sql" && arguments.sql.empty() && argument.rfind("--", 0) != 0) {
 			arguments.sql = argument;
 		} else {
@@ -196,6 +215,47 @@ int RunSql(const Arguments &arguments) {
 	return 0;
 }
 
+std::string TlsDirOf(const Arguments &arguments) {
+	return arguments.tls_dir.empty() ? ofexcel::DefaultTlsDir() : arguments.tls_dir;
+}
+
+int InstallCert(const Arguments &arguments) {
+	const auto files = ofexcel::TlsFilesIn(TlsDirOf(arguments));
+	const auto result = ofexcel::InstallLocalCa(files.dir);
+	std::cout << (result.ca_created ? "created " : "kept ") << files.ca_cert << "\n";
+	std::cout << (result.server_issued ? "issued " : "kept ") << files.server_cert << "\n";
+	if (arguments.no_trust) {
+		std::cout << "trust store left alone (--no-trust)" << std::endl;
+		return 0;
+	}
+	ofexcel::TrustCa(files.ca_cert, ofexcel::ReadCertificateIdentity(files.ca_cert));
+	std::cout << "trusted " << files.ca_cert << " for the current user" << std::endl;
+	return 0;
+}
+
+int UninstallCert(const Arguments &arguments) {
+	namespace fs = std::filesystem;
+	const auto files = ofexcel::TlsFilesIn(TlsDirOf(arguments));
+	std::error_code error;
+	const bool has_ca = fs::exists(fs::u8path(files.ca_cert), error);
+	if (has_ca && !arguments.no_trust) {
+		// Before the files go: the trust store is found by this certificate.
+		ofexcel::UntrustCa(files.ca_cert, ofexcel::ReadCertificateIdentity(files.ca_cert));
+		std::cout << "untrusted " << files.ca_cert << std::endl;
+	}
+	for (const auto &path : {files.ca_cert, files.ca_key, files.server_cert, files.server_key}) {
+		if (fs::remove(fs::u8path(path), error)) {
+			std::cout << "removed " << path << "\n";
+		} else if (error) {
+			throw std::runtime_error("Не удалось удалить " + path + ": " + error.message());
+		}
+	}
+	// Only if nothing else is left in it.
+	fs::remove(fs::u8path(files.dir), error);
+	std::cout << std::flush;
+	return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -214,6 +274,12 @@ int main(int argc, char **argv) {
 		}
 		if (arguments.command == "sql") {
 			return RunSql(arguments);
+		}
+		if (arguments.command == "install-cert") {
+			return InstallCert(arguments);
+		}
+		if (arguments.command == "uninstall-cert") {
+			return UninstallCert(arguments);
 		}
 	} catch (const std::exception &exception) {
 		std::cerr << "ofexceld: " << duckdb::ErrorData(exception).Message() << std::endl;

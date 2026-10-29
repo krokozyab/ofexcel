@@ -1,6 +1,7 @@
 #pragma once
 
-// The daemon's HTTP server: one per process, bound to 127.0.0.1.
+// The daemon's HTTPS server: one per process, bound to 127.0.0.1, with a
+// certificate from the local CA (DECISIONS.md Р6, src/security/local_ca.cpp).
 //
 // httplib stays out of this header. Routes live in src/server/routes_*.cpp and
 // see it through src/server/routes.hpp.
@@ -17,6 +18,8 @@ struct ServerOptions {
 	//! Profile, origins and session token. `guard.port` is the port to bind; 0
 	//! picks a free one, and the guard then checks against the port bound.
 	GuardConfig guard;
+	//! The directory with the local CA and the server certificate.
+	std::string tls_dir;
 	//! Phase 0 only: serve /v1/probe/* (src/server/routes_probe.cpp).
 	bool probe_routes = false;
 };
@@ -26,9 +29,12 @@ public:
 	//! The process-wide server.
 	static HttpServer &Get();
 
-	//! Binds 127.0.0.1 and serves on background threads. Returns the base URL.
-	//! Throws duckdb::InvalidInputException if a server is already running and
-	//! duckdb::IOException if the port cannot be bound.
+	//! Binds 127.0.0.1 and serves HTTPS on background threads. Returns the base
+	//! URL. Reissues the server certificate first if it expires within
+	//! SERVER_RENEW_DAYS. Throws duckdb::InvalidInputException if a server is
+	//! already running, duckdb::NotImplementedException (E_UNSUPPORTED) if
+	//! `tls_dir` has no CA, and duckdb::IOException if the certificate cannot be
+	//! used or the port cannot be bound.
 	std::string Start(duckdb::shared_ptr<duckdb::DatabaseInstance> db, ServerOptions options);
 
 	//! Stops serving and joins the server thread. Returns false if nothing was

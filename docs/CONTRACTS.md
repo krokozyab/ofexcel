@@ -573,6 +573,15 @@ UPDATE meta.state SET value = CAST(CAST(value AS BIGINT) + 1 AS VARCHAR) WHERE k
 
 ### 8.1 Общее
 - База: **HTTPS в обоих профилях** (решение Р6, `DECISIONS.md`): `https://localhost:<port>` или `https://127.0.0.1:<port>` с сертификатом от локального CA (`SPEC.md` §12.4). WebView Excel для Mac не делает запросов с HTTPS-страницы на HTTP, даже на loopback (`PHASE0_REPORT.md` §4.8). hosted — запросы с другого источника через CORS; local — тот же источник. Порт по умолчанию `47321`.
+- **Сертификаты** лежат в `ofexcel_tls_dir` (по умолчанию `QEXCEL_HOME/tls`, каталог `0700`) и создаются командой `ofexceld install-cert [--dir DIR] [--no-trust]`:
+  | Файл | Что это |
+  |---|---|
+  | `ca.crt` | Локальный CA: ECDSA P-256, 10 лет, CN `QExcel Local CA`, `basicConstraints` critical `CA:TRUE, pathlen:0`, `keyUsage` critical `keyCertSign, cRLSign`, `nameConstraints` critical `permitted DNS:localhost, IP:127.0.0.1/255.255.255.255` |
+  | `ca.key` | Ключ CA, PEM PKCS#8 без пароля, права `0600` |
+  | `server.crt` | Сертификат сервера: ECDSA P-256, 397 дней (не дольше срока CA), CN `localhost`, SAN `DNS:localhost, IP:127.0.0.1`, `extendedKeyUsage serverAuth`, `basicConstraints` critical `CA:FALSE` |
+  | `server.key` | Ключ сервера, права `0600` |
+
+  `install-cert` сохраняет уже созданный CA и перевыпускает только сертификат сервера, если нужно; без `--no-trust` добавляет CA в доверенные текущего пользователя (macOS — `login.keychain-db`, Windows — `CurrentUser\ROOT`). `ofexceld uninstall-cert [--dir DIR] [--no-trust]` убирает CA из доверенных и удаляет файлы. При запуске сервера сертификат сервера перевыпускается от того же CA, если до конца срока меньше 30 дней, если его нет или если он не подходит к ключу или к CA. Нет `ca.crt` — `ofexcel_start` отказывает с `E_UNSUPPORTED` и просит выполнить `ofexceld install-cert`.
 - Тела запросов и ответов — `application/json; charset=utf-8`.
 - **Проверки на каждом запросе** (до разбора тела):
   1. `Host` ∈ {`127.0.0.1:<port>`, `localhost:<port>`}, иначе 403 `E_HOST`.
@@ -939,7 +948,7 @@ type Binding = {
 | `ofexcel_call(kind VARCHAR, query VARCHAR, args JSON-строка VARCHAR)` | `VARCHAR` (JSON результата вызова) | Тот же путь, что `/v1/batch` |
 | `ofexcel_missing()` | `TABLE` колонок `meta.missing` | Недостающие данные |
 
-Настройки (`SET …`): `ofexcel_port` (INTEGER, 47321), `ofexcel_profile` (`'hosted'`/`'local'`), `ofexcel_hosted_origin` (VARCHAR), `ofexcel_refresh_parallel` (INTEGER, 4), `ofexcel_run_timeout` (INTEGER секунд, 1800), `ofexcel_spill_max_rows` (INTEGER, 10000), `ofexcel_write_chunk_rows` (INTEGER, 5000), `ofexcel_dataset_ttl_days` (INTEGER, 30), `ofexcel_addin_dir` (VARCHAR, пусто).
+Настройки (`SET …`): `ofexcel_port` (INTEGER, 47321), `ofexcel_profile` (`'hosted'`/`'local'`), `ofexcel_hosted_origin` (VARCHAR), `ofexcel_tls_dir` (VARCHAR, пусто = `QEXCEL_HOME/tls`; §8.1), `ofexcel_refresh_parallel` (INTEGER, 4), `ofexcel_run_timeout` (INTEGER секунд, 1800), `ofexcel_spill_max_rows` (INTEGER, 10000), `ofexcel_write_chunk_rows` (INTEGER, 5000), `ofexcel_dataset_ttl_days` (INTEGER, 30), `ofexcel_addin_dir` (VARCHAR, пусто).
 
 ---
 

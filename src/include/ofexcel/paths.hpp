@@ -1,0 +1,24 @@
+#pragma once
+
+// Where ofexceld keeps its files on disk (CONTRACTS.md §1). Pure: no DuckDB.
+//
+// Paths are UTF-8 strings on every platform. On Windows, open them through
+// std::filesystem::u8path, never as narrow paths: the user's profile directory
+// can hold characters outside the ANSI code page.
+
+#include <string>
+
+namespace ofexcel {
+
+//! macOS ~/Library/Application Support/QExcel, Windows %LOCALAPPDATA%\QExcel,
+//! elsewhere $XDG_DATA_HOME/QExcel or ~/.local/share/QExcel. Throws
+//! std::runtime_error if the home directory cannot be determined.
+std::string QexcelHome();
+
+//! QexcelHome()/tls: the local CA and the server certificate (CONTRACTS.md §8.1).
+std::string DefaultTlsDir();
+
+//! `directory` and `name` joined with the platform's separator.
+std::string JoinPath(const std::string &directory, const std::string &name);
+
+} // namespace ofexcel

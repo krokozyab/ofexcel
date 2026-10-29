@@ -5,6 +5,8 @@ set(TARGET_NAME ofexcel)
 # Dependencies come from vcpkg (vcpkg.json). fusion_scanner's own dependencies
 # (curl, openssl, tinyxml2) are listed there too, because it is built in this tree.
 find_package(httplib CONFIG REQUIRED)
+# The local CA (src/security/local_ca.cpp) and httplib's HTTPS server.
+find_package(OpenSSL REQUIRED)
 
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
@@ -23,7 +25,10 @@ set(EXTENSION_SOURCES
         src/sql_functions.cpp
         src/version.cpp
         src/db_util.cpp
+        src/paths.cpp
         src/meta/migrations.cpp
+        src/security/local_ca.cpp
+        src/security/trust_store.cpp
         src/server/request_guard.cpp
         src/server/json_body.cpp
         src/server/http_server.cpp
@@ -37,8 +42,8 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 # PRIVATE, so the requirement does not propagate to DuckDB's own targets.
 target_compile_features(${EXTENSION_NAME} PRIVATE cxx_std_17)
 target_compile_features(${LOADABLE_EXTENSION_NAME} PRIVATE cxx_std_17)
-target_link_libraries(${EXTENSION_NAME} httplib::httplib)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} httplib::httplib)
+target_link_libraries(${EXTENSION_NAME} httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
 
 # Headers of the extensions ofexceld and the tests load explicitly. fusion_scanner
 # is declared in another directory, so its source directory is resolved when the
@@ -71,13 +76,22 @@ if(OFEXCEL_BUILD_TESTS)
   target_compile_features(ofexcel_guard_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_guard_test COMMAND ofexcel_guard_test)
 
-  # Starts the HTTP server inside an in-memory database and talks to it over
-  # 127.0.0.1 on an ephemeral port.
+  # Pure as well: the local CA and the server certificate, OpenSSL only, in a
+  # temporary directory.
+  add_executable(ofexcel_tls_test test/cpp/tls_test.cpp src/security/local_ca.cpp src/paths.cpp)
+  target_link_libraries(ofexcel_tls_test PRIVATE OpenSSL::Crypto)
+  target_include_directories(ofexcel_tls_test PRIVATE src/include)
+  target_compile_features(ofexcel_tls_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_tls_test COMMAND ofexcel_tls_test)
+
+  # Starts the HTTPS server inside an in-memory database and talks to it over
+  # 127.0.0.1 on an ephemeral port. Its certificates come from running the
+  # ofexceld binary itself: `install-cert --no-trust --dir <temporary>`.
   add_executable(ofexcel_server_test test/cpp/server_test.cpp)
   target_link_libraries(ofexcel_server_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS} httplib::httplib)
   target_include_directories(ofexcel_server_test PRIVATE src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
   target_compile_features(ofexcel_server_test PRIVATE cxx_std_17)
-  add_test(NAME ofexcel_server_test COMMAND ofexcel_server_test)
+  add_test(NAME ofexcel_server_test COMMAND ofexcel_server_test $<TARGET_FILE:ofexceld>)
 
   # Drives oracle_fusion_query through ofquack's transport seam with scripted
   # SOAP responses: pins the ofquack behaviour CONTRACTS.md §5 relies on,

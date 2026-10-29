@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts everything the add-in probe needs (phase 0 only):
 #   1. loads probe.ap_lines from Fusion into state/probe.duckdb, once (SSO sign-in);
-#   2. ofexceld serve with /v1/probe/rows on http://127.0.0.1:47321;
+#   2. ofexceld serve with /v1/probe/rows on https://127.0.0.1:47321, with a CA
+#      of its own in state/tls that only the proxy in server.mjs trusts;
 #   3. the HTTPS dev server on https://localhost:3000.
 #
 #   FUSION_ENDPOINT=https://fa-xxxx.fa.ocs.oraclecloud.com \
@@ -24,7 +25,8 @@ if [[ ! -f "$DB" ]]; then
 	rm -f "$STATE/load.sql"
 fi
 
-echo "SET ofexcel_probe_routes = true;" > "$STATE/serve_init.sql"
+"$OFEXCELD" install-cert --no-trust --dir "$STATE/tls"
+printf "SET ofexcel_probe_routes = true;\nSET ofexcel_tls_dir = '%s';\n" "$STATE/tls" > "$STATE/serve_init.sql"
 "$OFEXCELD" serve --db "$DB" --init "$STATE/serve_init.sql" --origin https://localhost:3000 --port 47321 &
 DAEMON=$!
 trap 'kill $DAEMON 2>/dev/null' EXIT

@@ -9,7 +9,7 @@
 //   POST /meta-variant            {"variant": n} -- switches /functions.json
 //   POST /report?name=<session>   saves the probe's report to ./reports/<session>.json
 //   GET  /assets/icon-<n>.png     a generated n x n icon
-//   *    /daemon/<path>           proxied to ofexceld on http://127.0.0.1:47321/<path>
+//   *    /daemon/<path>           proxied to ofexceld on https://127.0.0.1:47321/<path>
 //
 // The proxy exists because Excel for Mac's WebView refuses fetch() from this
 // HTTPS page to http://127.0.0.1 outright (phase 0, first probe run). Behind it
@@ -22,7 +22,6 @@
 // No dependencies: node server.mjs
 
 import fs from 'node:fs';
-import http from 'node:http';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
@@ -190,8 +189,10 @@ function proxyToDaemon(request, response, url) {
 			headers[name] = request.headers[name];
 		}
 	}
-	const upstream = http.request(
-		{ host: '127.0.0.1', port: DAEMON_PORT, method: request.method, path: url.pathname.slice('/daemon'.length) + url.search, headers },
+	// The daemon speaks HTTPS only (DECISIONS.md Р6); start.sh gives it a CA of its own in state/tls.
+	const upstream = https.request(
+		{ host: '127.0.0.1', port: DAEMON_PORT, method: request.method, path: url.pathname.slice('/daemon'.length) + url.search, headers,
+		  ca: fs.readFileSync(path.join(STATE_DIR, 'tls', 'ca.crt')) },
 		(daemonResponse) => {
 			response.writeHead(daemonResponse.statusCode, Object.assign({}, daemonResponse.headers, { 'Cache-Control': 'no-store' }));
 			daemonResponse.pipe(response);

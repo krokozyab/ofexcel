@@ -2,6 +2,7 @@
 
 #include "duckdb/function/table_function.hpp"
 #include "ofexcel/http_server.hpp"
+#include "ofexcel/paths.hpp"
 #include "ofexcel/version.hpp"
 
 #include <string>
@@ -46,8 +47,22 @@ int64_t IntegerSetting(ClientContext &context, const char *name, int64_t fallbac
 	return fallback;
 }
 
-//! Reads ofexcel_profile, ofexcel_hosted_origin and ofexcel_port into the
-//! options a server starts with. Every refusal names the setting to fix.
+//! ofexcel_tls_dir, or QEXCEL_HOME/tls when it is empty.
+std::string TlsDirSetting(ClientContext &context) {
+	const auto configured = StringSetting(context, "ofexcel_tls_dir");
+	if (!configured.empty()) {
+		return configured;
+	}
+	try {
+		return DefaultTlsDir();
+	} catch (const std::exception &error) {
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; задайте SET ofexcel_tls_dir", error.what());
+	}
+}
+
+//! Reads ofexcel_profile, ofexcel_hosted_origin, ofexcel_port and
+//! ofexcel_tls_dir into the options a server starts with. Every refusal names
+//! the setting to fix.
 ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override) {
 	ServerOptions options;
 
@@ -79,6 +94,7 @@ ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override)
 		                                    static_cast<long long>(port));
 	}
 	options.guard.port = static_cast<int>(port);
+	options.tls_dir = TlsDirSetting(context);
 	Value probe;
 	options.probe_routes = context.TryGetCurrentSetting("ofexcel_probe_routes", probe) && !probe.IsNull() && probe.GetValue<bool>();
 	return options;
@@ -207,6 +223,13 @@ duckdb::unique_ptr<GlobalTableFunctionState> StatusInit(ClientContext &context, 
 	add("url", server.Url());
 	add("profile", StringSetting(context, "ofexcel_profile"));
 	add("hosted_origin", StringSetting(context, "ofexcel_hosted_origin"));
+	std::string tls_dir;
+	try {
+		tls_dir = TlsDirSetting(context);
+	} catch (const std::exception &) {
+		// Status reports what it can; ofexcel_start names the problem.
+	}
+	add("tls_dir", tls_dir);
 	return std::move(state);
 }
 
@@ -245,9 +268,13 @@ void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	config.AddExtensionOption("ofexcel_port", "Port ofexceld listens on at 127.0.0.1; 0 picks a free one.",
 	                          LogicalType::INTEGER, Value::INTEGER(DEFAULT_PORT));
 	config.AddExtensionOption("ofexcel_profile",
-	                          "How the Excel add-in is served: 'hosted' (HTTPS host, API over http://127.0.0.1) or "
+	                          "How the Excel add-in is served: 'hosted' (HTTPS host, API over https://127.0.0.1) or "
 	                          "'local' (served by ofexceld over https://localhost).",
 	                          LogicalType::VARCHAR, Value("hosted"));
+	config.AddExtensionOption("ofexcel_tls_dir",
+	                          "Directory with the local CA and the server certificate (ofexceld install-cert); "
+	                          "empty means QEXCEL_HOME/tls.",
+	                          LogicalType::VARCHAR, Value(""));
 	config.AddExtensionOption("ofexcel_hosted_origin",
 	                          "The one Origin the hosted add-in is served from, e.g. https://intranet.example.com.",
 	                          LogicalType::VARCHAR, Value(""));

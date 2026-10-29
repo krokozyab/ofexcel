@@ -10,7 +10,7 @@
 namespace ofexcel {
 
 enum class Profile {
-	HOSTED, //!< add-in served from an HTTPS host, API over http://127.0.0.1 with CORS
+	HOSTED, //!< add-in served from an HTTPS host, API over https://127.0.0.1 with CORS
 	LOCAL,  //!< add-in and API both served by the daemon over https://localhost
 };
 

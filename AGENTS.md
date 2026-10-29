@@ -6,7 +6,8 @@ Guidance for coding agents working in this repository. Read it before changing a
 
 `ofexcel` is the backend of QExcel: a DuckDB C++ extension plus `ofexceld`, one binary that
 links DuckDB, this extension, `fusion_scanner` (ofquack) and `core_functions` statically. The
-Excel add-in talks to `ofexceld` over HTTP on 127.0.0.1.
+Excel add-in talks to `ofexceld` over HTTPS on 127.0.0.1, with a certificate from a local CA
+(`docs/DECISIONS.md` Р6).
 
 - **`docs/CONTRACTS.md` is normative.** Formats, rules, error codes and test vectors. When code
   and the contract disagree, the code is wrong — or the contract is, and then you stop and ask.
@@ -41,14 +42,20 @@ Single tests:
 ```sh
 ./build/release/test/unittest test/sql/ofexcel.test
 ./build/release/extension/ofexcel/ofexcel_guard_test        # pure, < 1 s
-./build/release/extension/ofexcel/ofexcel_server_test       # HTTP on an ephemeral port
+./build/release/extension/ofexcel/ofexcel_tls_test          # pure: local CA and certificates
+./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
+                                                            # HTTPS on an ephemeral port
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
 ```
 
-Running the daemon by hand:
+Running the daemon by hand. `install-cert` creates the local CA in `QEXCEL_HOME/tls` and trusts
+it for the current user; macOS asks for your password. `--no-trust --dir DIR` skips the trust
+step and writes elsewhere, which is what tests and scripts use.
 ```sh
+./build/release/extension/ofexcel/ofexceld install-cert
 ./build/release/extension/ofexcel/ofexceld serve --origin https://localhost:3000 --port 47321
-curl -s -H 'Origin: https://localhost:3000' http://127.0.0.1:47321/v1/health
+curl -s -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/health
+./build/release/extension/ofexcel/ofexceld uninstall-cert   # takes the CA out of the trust store
 ```
 
 ## Layout
@@ -58,9 +65,12 @@ src/ofexcel_extension.cpp   extension entry point: registers settings and functi
 src/sql_functions.cpp       ofexcel_* SQL functions and settings (CONTRACTS.md §13)
 src/main.cpp                ofexceld command line
 src/db_util.cpp             Execute / QueryRows over DuckDB 2.0's chunked results
+src/paths.cpp               QEXCEL_HOME and the paths under it — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
+src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only
+src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS keychain, Windows ROOT)
 src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB, no httplib
-src/server/http_server.cpp  server lifecycle, guard, CORS, error fallbacks
+src/server/http_server.cpp  HTTPS server lifecycle, guard, CORS, error fallbacks
 src/server/routes.hpp       what a route file needs
 src/server/routes_*.cpp     one file per route group
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON
@@ -81,8 +91,12 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
   not what.
 - DuckDB 2.0 results are read chunk by chunk (`Fetch()`); there is no `MaterializedQueryResult`.
   Use `QueryRows` (metadata-sized results) or read chunks yourself.
-- Code under `src/server/request_guard.cpp` and any future pure module must not include
-  `duckdb.hpp` or `httplib.h`, so it stays testable in a second.
+- Code under `src/server/request_guard.cpp`, `src/security/`, `src/paths.cpp` and any future pure
+  module must not include `duckdb.hpp` or `httplib.h`, so it stays testable in a second.
+- Paths are UTF-8 `std::string`; open files through `std::filesystem::u8path`. A Windows user
+  name can be Cyrillic, and a narrow path would go through the ANSI code page.
+- `<wincrypt.h>` and OpenSSL headers never meet in one file: wincrypt's macros (`X509_NAME`…)
+  break OpenSSL's types. `trust_store.cpp` takes DER bytes from `local_ca.cpp` for that reason.
 
 ### Errors
 - SQL-facing errors are DuckDB exceptions whose message starts with the code from
@@ -126,6 +140,8 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
   only when asked.
 - Add a dependency (vcpkg port, vendored code) without asking.
 - Relax the Host / Origin / session checks, the CORS rules, or Local SQL validation.
+- Serve plain HTTP, turn off certificate verification in a test client, or loosen the CA's name
+  constraints.
 - Implement anything SPEC.md lists as context only (package GL, server mode, phase 2–3).
 
 ## Stop and ask when
@@ -138,6 +154,7 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
 Mark these in the task report; do not consider them done until reviewed:
 - the Oracle SQL tokenizer and parameter rendering (CONTRACTS.md §4);
 - Host / Origin / session / CORS handling;
+- TLS: the local CA, certificates, trust-store code (`src/security/`);
 - Local SQL validation (CONTRACTS.md §7);
 - trust handling (CONTRACTS.md §9.3);
 - the type contract (CONTRACTS.md §3);

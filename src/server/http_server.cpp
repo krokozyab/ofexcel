@@ -1,6 +1,7 @@
 #include "ofexcel/http_server.hpp"
 
 #include "ofexcel/json_body.hpp"
+#include "ofexcel/local_ca.hpp"
 #include "ofexcel/migrations.hpp"
 #include "routes.hpp"
 
@@ -102,6 +103,32 @@ void InstallFallbacks(httplib::Server &server) {
 	});
 }
 
+//! An HTTPS server with the certificate from `tls_dir`, reissued first if it is
+//! about to expire. TlsError becomes the DuckDB exception CONTRACTS.md §14 maps.
+std::unique_ptr<httplib::SSLServer> CreateTlsServer(const std::string &tls_dir) {
+	ServerPem pem;
+	try {
+		pem = LoadServerCertificate(tls_dir);
+	} catch (const TlsError &error) {
+		if (error.kind == TlsError::Kind::MISSING) {
+			throw duckdb::NotImplementedException("E_UNSUPPORTED: %s", error.what());
+		}
+		throw duckdb::IOException("E_INTERNAL: %s", error.what());
+	}
+	httplib::SSLServer::PemMemory memory {};
+	memory.cert_pem = pem.cert_pem.c_str();
+	memory.cert_pem_len = pem.cert_pem.size();
+	memory.key_pem = pem.key_pem.c_str();
+	memory.key_pem_len = pem.key_pem.size();
+	auto server = std::make_unique<httplib::SSLServer>(memory);
+	if (!server->is_valid()) {
+		throw duckdb::IOException("E_INTERNAL: сертификат сервера в %s не принят TLS (код %d). Выполните ofexceld "
+		                          "install-cert",
+		                          tls_dir, server->ssl_last_error());
+	}
+	return server;
+}
+
 void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterHealthRoutes(server, context);
 	if (context.options.probe_routes) {
@@ -160,14 +187,16 @@ std::string HttpServer::Start(duckdb::shared_ptr<duckdb::DatabaseInstance> db, S
 		throw duckdb::InvalidInputException("E_CONFLICT: сервер ofexceld уже запущен на %s", state->url);
 	}
 
+	// Certificates before migrations: a daemon that cannot serve HTTPS should
+	// fail before it touches the database.
+	std::unique_ptr<httplib::Server> server = CreateTlsServer(options.tls_dir);
+	server->set_payload_max_length(MAX_PAYLOAD_BYTES);
+
 	// Migrate before accepting requests, so no route ever sees a half-built schema.
 	{
 		duckdb::Connection connection(*db);
 		RunMigrations(connection);
 	}
-
-	auto server = std::make_unique<httplib::Server>();
-	server->set_payload_max_length(MAX_PAYLOAD_BYTES);
 
 	const std::string bind_address = "127.0.0.1";
 	int port = options.guard.port;
@@ -192,7 +221,7 @@ std::string HttpServer::Start(duckdb::shared_ptr<duckdb::DatabaseInstance> db, S
 	auto *raw = server.get();
 	state->thread = std::thread([raw]() { raw->listen_after_bind(); });
 	state->server = std::move(server);
-	state->url = "http://" + bind_address + ":" + std::to_string(port);
+	state->url = "https://" + bind_address + ":" + std::to_string(port);
 	return state->url;
 }
 

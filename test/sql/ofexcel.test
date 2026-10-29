@@ -30,6 +30,18 @@ SELECT * FROM ofexcel_start(port := 0);
 ----
 ofexcel_hosted_origin
 
+# No local CA in ofexcel_tls_dir: refused, and the message says what to run.
+statement ok
+SET ofexcel_hosted_origin = 'https://app.example.com';
+
+statement ok
+SET ofexcel_tls_dir = '__TEST_DIR__/no_tls_here';
+
+statement error
+SELECT * FROM ofexcel_start(port := 0);
+----
+ofexceld install-cert
+
 statement ok
 SET ofexcel_profile = 'local';
 
