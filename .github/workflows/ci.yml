@@ -1,7 +1,6 @@
 #
-# Builds and tests on macOS on Apple Silicon only, for now. The product ships for
-# Windows x64 (MSVC) too (SPEC.md §1.6), but Windows is tested at the end of
-# development: to bring it back, remove windows_amd64 from exclude_archs.
+# Builds and tests on the two platforms the product ships for (SPEC.md §1.6):
+# macOS on Apple Silicon and Windows x64 (MSVC). Everything else is excluded.
 #
 # The reusable workflow runs `make release` and `make test` (the sqllogictests).
 # It does not run the C++ suites or publish ofexceld; both are separate tasks.
@@ -28,4 +27,4 @@ jobs:
       duckdb_tag: v2.0.0-alpha46057
       ci_tools_version: v2.0-cyanoptera
       extension_name: ofexcel
-      exclude_archs: 'linux_amd64;linux_amd64_musl;linux_arm64;linux_arm64_musl;osx_amd64;wasm_mvp;wasm_eh;wasm_threads;windows_amd64;windows_amd64_mingw;windows_arm64'
+      exclude_archs: 'linux_amd64;linux_amd64_musl;linux_arm64;linux_arm64_musl;osx_amd64;wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw;windows_arm64'
