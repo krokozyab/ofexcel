@@ -1,0 +1,31 @@
+#
+# Builds and tests on macOS on Apple Silicon only, for now. The product ships for
+# Windows x64 (MSVC) too (SPEC.md §1.6), but Windows is tested at the end of
+# development: to bring it back, remove windows_amd64 from exclude_archs.
+#
+# The reusable workflow runs `make release` and `make test` (the sqllogictests).
+# It does not run the C++ suites or publish ofexceld; both are separate tasks.
+#
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
+    with:
+      # The same DuckDB commit and tag ofquack's main line builds against. The
+      # duckdb submodule, this pin and the fusion_scanner GIT_TAG in
+      # extension_config.cmake move together, or not at all.
+      duckdb_version: b15358c371daf10dad799a43b6167f6ccdce84d8
+      duckdb_tag: v2.0.0-alpha46057
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: ofexcel
+      exclude_archs: 'linux_amd64;linux_amd64_musl;linux_arm64;linux_arm64_musl;osx_amd64;wasm_mvp;wasm_eh;wasm_threads;windows_amd64;windows_amd64_mingw;windows_arm64'

@@ -1,0 +1,18 @@
+{
+  "name": "ofexcel",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "curl",
+    "openssl",
+    "tinyxml2",
+    {
+      "name": "cpp-httplib",
+      "default-features": false
+    }
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "./extension-ci-tools/vcpkg_ports"
+    ]
+  }
+}

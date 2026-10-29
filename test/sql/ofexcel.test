@@ -1,0 +1,44 @@
+# name: test/sql/ofexcel.test
+# description: ofexcel registers its functions and settings; refusals name what to fix
+# group: [ofexcel]
+
+require ofexcel
+
+query T
+SELECT ofexcel_version() LIKE '0.1.0-dev (built %)';
+----
+true
+
+query T
+SELECT current_setting('ofexcel_port');
+----
+47321
+
+query T
+SELECT current_setting('ofexcel_profile');
+----
+hosted
+
+query II
+SELECT key, value FROM ofexcel_status() WHERE key = 'server_running';
+----
+server_running	false
+
+# Hosted with no origin configured: refused, and the message names the setting.
+statement error
+SELECT * FROM ofexcel_start(port := 0);
+----
+ofexcel_hosted_origin
+
+statement ok
+SET ofexcel_profile = 'local';
+
+statement error
+SELECT * FROM ofexcel_start(port := 0);
+----
+E_UNSUPPORTED
+
+query T
+SELECT stopped FROM ofexcel_stop();
+----
+false

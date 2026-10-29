@@ -1,0 +1,12 @@
+build/
+.idea/
+.vscode/
+.cache/
+cmake-build-*/
+compile_commands.json
+*.duckdb
+*.duckdb.wal
+duckdb_unittest_tempdir/
+testext
+test/python/__pycache__/
+.DS_Store
