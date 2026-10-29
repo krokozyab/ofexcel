@@ -26,7 +26,10 @@ set(EXTENSION_SOURCES
         src/version.cpp
         src/db_util.cpp
         src/paths.cpp
+        src/catalog/utf8.cpp
         src/catalog/hashing.cpp
+        src/catalog/contract_types.cpp
+        src/catalog/query_file.cpp
         src/meta/migrations.cpp
         src/security/local_ca.cpp
         src/security/trust_store.cpp
@@ -89,11 +92,26 @@ if(OFEXCEL_BUILD_TESTS)
   add_test(NAME ofexcel_tls_test COMMAND ofexcel_tls_test)
 
   # Pure: definition_hash, canonical_params, instance_key.
-  add_executable(ofexcel_hashing_test test/cpp/hashing_test.cpp src/catalog/hashing.cpp)
+  add_executable(ofexcel_hashing_test test/cpp/hashing_test.cpp src/catalog/hashing.cpp src/catalog/utf8.cpp)
   target_link_libraries(ofexcel_hashing_test PRIVATE OpenSSL::Crypto)
   target_include_directories(ofexcel_hashing_test PRIVATE src/include)
   target_compile_features(ofexcel_hashing_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_hashing_test COMMAND ofexcel_hashing_test)
+
+  # Pure: parameter and column types, canonical text values.
+  add_executable(ofexcel_contract_types_test test/cpp/contract_types_test.cpp src/catalog/contract_types.cpp
+                 src/catalog/utf8.cpp)
+  target_include_directories(ofexcel_contract_types_test PRIVATE src/include)
+  target_compile_features(ofexcel_contract_types_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_contract_types_test COMMAND ofexcel_contract_types_test)
+
+  # Pure: the query file header and body, vectors P1–P16.
+  add_executable(ofexcel_query_file_test test/cpp/query_file_test.cpp src/catalog/query_file.cpp
+                 src/catalog/contract_types.cpp src/catalog/hashing.cpp src/catalog/utf8.cpp)
+  target_link_libraries(ofexcel_query_file_test PRIVATE OpenSSL::Crypto)
+  target_include_directories(ofexcel_query_file_test PRIVATE src/include)
+  target_compile_features(ofexcel_query_file_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_query_file_test COMMAND ofexcel_query_file_test)
 
   # Starts the HTTPS server inside an in-memory database and talks to it over
   # 127.0.0.1 on an ephemeral port. Its certificates come from running the

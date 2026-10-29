@@ -148,6 +148,7 @@
 ### B3. Договор о типах  [L] 🔒
 **Цель.** Нормализация параметров, вывод и расширение типов колонок, кодирование JSON.
 **Контракт:** `CONTRACTS.md` §3.1–3.5 (включая `''` → NULL, `DATE` без времени, `TS`/`TSTZ`, отбрасывание дроби до микросекунд); `DECISIONS.md` Р2.
+**Опора:** `src/catalog/contract_types.cpp` (из B2): `ParamType`, `ColumnType`, их разбор и `CanonicalizeText` — ввод строкой по §3.1 для всех типов уже есть, с тестами в `test/cpp/contract_types_test.cpp`. B3 добавляет ввод JSON-числом и boolean и коды `E_PARAM_*` поверх него, а не пишет второй разборщик.
 **Сделать:**
 - `NormalizeParam(type, json_value) → canonical | E_PARAM_*`;
 - `InferColumnType(name, values, start_type) → contract_type + warnings`;
