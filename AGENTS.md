@@ -12,7 +12,7 @@ Excel add-in talks to `ofexceld` over HTTP on 127.0.0.1.
   and the contract disagree, the code is wrong — or the contract is, and then you stop and ask.
 - **`docs/SPEC.md` is context.** Read its block «Объём MVP» first: it says which sections are
   implemented now and which are for context only.
-- Work comes as tasks in `docs/TASKS.md` (when it exists). Do the task, nothing beyond it.
+- Work comes as tasks in `docs/TASKS.md`. Do the task, nothing beyond it; its rules (branch, report, when to stop) are in its §0.
 
 ## Build and test
 
@@ -68,7 +68,7 @@ test/sql/                   sqllogictests
 test/cpp/                   C++ suites; test_support.hpp is shared
 tools/live_probe.cpp        ofexcel_live_probe: checks against a real Fusion (not in ctest)
 tools/phase0/               phase 0 probe scripts; results in docs/PHASE0_REPORT.md
-docs/                       SPEC.md, CONTRACTS.md, PHASE0_REPORT.md
+docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE0_REPORT.md
 ```
 
 ## Rules
