@@ -44,7 +44,14 @@
 		form label { display: block; margin: 6px 0; color: var(--muted); }
 		form input, form select { display: block; width: 100%; box-sizing: border-box; margin-top: 2px;
 		                          font: inherit; padding: 3px; color: var(--text); }
-		section.query { margin-top: 16px; }
+		section.query, section.bound { margin-top: 16px; }
+		.binding { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 4px;
+		           padding: 8px; margin-bottom: 8px; }
+		.binding .title { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+		.binding .host { color: var(--muted); font-size: 12px; }
+		.binding .state { color: var(--muted); margin: 4px 0; }
+		.binding .signing-in { color: var(--warning); margin: 4px 0; }
+		.binding .actions { display: flex; gap: 6px; margin-top: 6px; }
 		h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }
 		.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 		.toolbar h2 { margin: 0; flex: 1; }

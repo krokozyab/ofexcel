@@ -113,3 +113,15 @@ export interface Preview {
 	rendered_sql?: string;
 	warnings: Warning[];
 }
+
+/** A run (CONTRACTS.md §8.2 Run), as far as the add-in reads it. */
+export interface Run {
+	run_id: string;
+	instance_key: string;
+	query: { id: string; hash: string };
+	connection: string;
+	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+	rows_fetched: number;
+	truncated: boolean;
+	error?: { code: string; message: string };
+}

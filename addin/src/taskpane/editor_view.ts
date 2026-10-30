@@ -15,6 +15,7 @@ import type { ConnectionsModel } from '../connections/model';
 import { sqlCompletions } from '../editor/completions';
 import { type EditorModel, ORACLE_DATE_HINT, type ParamSource } from '../editor/model';
 import { directive, type Engine } from '../editor/query_text';
+import type { TablesModel } from '../writer/tables';
 import { h } from './dom';
 
 /** How long typing pauses before the text is checked; checking never reaches Fusion. */
@@ -36,6 +37,11 @@ export class EditorSection {
 	private readonly problems = h('div', { class: 'problems' });
 	private readonly paramsBox = h('div', { class: 'params' });
 	private readonly previewButton = h('button', { class: 'primary' }, 'Preview') as HTMLButtonElement;
+	private readonly loadButton = h(
+		'button',
+		{ title: 'Save the query to the workbook and load all its rows into a new table at the selected cell' },
+		'Load to table',
+	) as HTMLButtonElement;
 	private readonly previewBox = h('div', { class: 'preview' });
 	private readonly projectInput = h('input', { class: 'project', title: 'Project: a folder under ~/QExcel/projects' }) as HTMLInputElement;
 	private readonly saveStatus = h('div', { class: 'save-status', role: 'status' });
@@ -46,6 +52,7 @@ export class EditorSection {
 		private readonly model: EditorModel,
 		private readonly connections: ConnectionsModel,
 		client: DaemonClient,
+		private readonly tables: TablesModel,
 	) {
 		this.shownEngine = model.engine;
 		this.editor = new EditorView({
@@ -85,6 +92,7 @@ export class EditorSection {
 		}
 		this.connectionSelect.addEventListener('change', () => model.setConnection(this.connectionSelect.value));
 		this.previewButton.addEventListener('click', () => void model.runPreview());
+		this.loadButton.addEventListener('click', () => void this.loadToTable());
 		this.projectInput.value = readSetting(PROJECT_SETTING) || DEFAULT_PROJECT;
 		const toProject = h('button', { onclick: () => this.saveToProject() }, 'Save to project') as HTMLButtonElement;
 		const toWorkbook = h('button', { onclick: () => this.saveToWorkbook() }, 'Save to workbook') as HTMLButtonElement;
@@ -110,7 +118,7 @@ export class EditorSection {
 				this.editor.dom.parentElement!,
 				this.problems,
 				this.paramsBox,
-				h('div', { class: 'toolbar' }, this.previewButton),
+				h('div', { class: 'toolbar' }, this.previewButton, this.loadButton),
 				this.previewBox,
 				h('div', { class: 'toolbar save' }, h('label', {}, 'Project ', this.projectInput), toProject, toWorkbook),
 				this.saveStatus,
@@ -118,6 +126,7 @@ export class EditorSection {
 		);
 
 		model.onChange(() => this.render());
+		tables.onChange(() => this.render());
 		connections.onChange(() => this.renderConnections());
 		this.renderConnections();
 		this.render();
@@ -154,6 +163,8 @@ export class EditorSection {
 		for (const button of this.saveButtons) {
 			button.disabled = model.saving;
 		}
+		this.loadButton.disabled =
+			model.saving || this.tables.loading?.busy !== undefined || (engine === 'oracle' && !model.connection);
 		this.saveStatus.textContent = model.saving ? 'Saving…' : (model.saved?.message ?? '');
 		this.saveStatus.className = `save-status ${model.saved && !model.saved.ok ? 'problem' : 'ok'}`;
 	}
@@ -352,6 +363,23 @@ export class EditorSection {
 			parts.push(h('details', {}, h('summary', {}, 'SQL sent to Fusion'), h('pre', {}, preview.rendered_sql)));
 		}
 		this.previewBox.replaceChildren(...parts);
+	}
+
+	/** Saves the query into the workbook, then runs it and writes every row into
+	 * a new table at the selected cell (SPEC.md §5.2 item 6). */
+	private async loadToTable(): Promise<void> {
+		const connection = this.connections.connections.find((item) => item.name === this.model.connection);
+		const query = await this.model.saveForBinding(connection?.user);
+		if (!query) {
+			return;
+		}
+		await this.tables.loadToTable({
+			query,
+			...(this.model.engine === 'oracle' && connection
+				? { connection: { name: connection.name, host: connection.host } }
+				: {}),
+			params: this.model.paramBindings(),
+		});
 	}
 
 	private saveToProject(): void {

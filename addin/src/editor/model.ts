@@ -8,6 +8,7 @@ import type { DaemonClient } from '../api/client';
 import { DaemonError } from '../api/errors';
 import type { ParamDef, Preview, QuerySummary, Validation } from '../api/types';
 import { emptyPayload, withQuery, type WorkbookPayload } from '../workbook/payload';
+import type { ParamBinding } from '../writer/bindings';
 import { cellsToParam, type ParamValue } from './cells';
 import { declareParam, engineOf, newQueryText, setDirective, type Engine, type ParamDeclaration } from './query_text';
 
@@ -221,31 +222,63 @@ export class EditorModel {
 	 * author's own -- is trusted for it, so that it can run. The workbook is
 	 * written last: a text the daemon refuses never reaches it. */
 	async saveToWorkbook(savedBy?: string): Promise<void> {
+		await this.save(async () => `Saved ${(await this.storeInWorkbook(savedBy)).id} to this workbook`);
+	}
+
+	/** Saves the query to the workbook, as saveToWorkbook does, for a table to
+	 * be bound to it (CONTRACTS.md §9.2: a binding's query is the workbook's).
+	 * Undefined when the save failed; `saved` says why. */
+	async saveForBinding(savedBy?: string): Promise<{ id: string; hash: string } | undefined> {
+		let query: { id: string; hash: string } | undefined;
 		await this.save(async () => {
-			const id = await this.queryId();
-			const workbookId = await this.workbook.ensureId();
-			let payload = (await this.workbook.read()) ?? emptyPayload(workbookId);
-			payload = withQuery(payload, {
-				id,
-				hash: '',
-				text: this.text,
-				...(savedBy ? { saved_by: savedBy } : {}),
-				saved_at: new Date().toISOString().slice(0, 19) + 'Z',
-			});
-			const registered = await this.client.put<{ queries: QuerySummary[] }>(
-				`/v1/workbooks/${workbookId}/queries`,
-				{ queries: payload.queries.map((query) => ({ text: query.text })) },
-			);
-			payload = {
-				...payload,
-				workbook_id: workbookId,
-				queries: payload.queries.map((query, index) => ({ ...query, hash: registered.queries[index].hash })),
-			};
-			const hash = payload.queries.find((query) => query.id.toLowerCase() === id.toLowerCase())!.hash;
-			await this.client.post('/v1/trust', { workbook_id: workbookId, hashes: [hash] });
-			await this.workbook.write(payload);
-			return `Saved ${id} to this workbook`;
+			query = await this.storeInWorkbook(savedBy);
+			return `Saved ${query.id} to this workbook`;
 		});
+		return query;
+	}
+
+	/** The parameters' sources as a binding keeps them: a cell as its reference,
+	 * a value as it is; an empty value is left out, for the default. */
+	paramBindings(): Record<string, ParamBinding> {
+		const bindings: Record<string, ParamBinding> = {};
+		for (const param of this.params) {
+			const source = this.sources.get(param.name);
+			if (source?.kind === 'cell' && source.ref.trim()) {
+				bindings[param.name] = { ref: source.ref.trim() };
+			} else if (source?.kind === 'value' && source.value !== '') {
+				bindings[param.name] = {
+					value: /^list</.test(param.type)
+						? source.value.split(',').map((element) => element.trim())
+						: source.value,
+				};
+			}
+		}
+		return bindings;
+	}
+
+	private async storeInWorkbook(savedBy?: string): Promise<{ id: string; hash: string }> {
+		const id = await this.queryId();
+		const workbookId = await this.workbook.ensureId();
+		let payload = (await this.workbook.read()) ?? emptyPayload(workbookId);
+		payload = withQuery(payload, {
+			id,
+			hash: '',
+			text: this.text,
+			...(savedBy ? { saved_by: savedBy } : {}),
+			saved_at: new Date().toISOString().slice(0, 19) + 'Z',
+		});
+		const registered = await this.client.put<{ queries: QuerySummary[] }>(`/v1/workbooks/${workbookId}/queries`, {
+			queries: payload.queries.map((query) => ({ text: query.text })),
+		});
+		payload = {
+			...payload,
+			workbook_id: workbookId,
+			queries: payload.queries.map((query, index) => ({ ...query, hash: registered.queries[index].hash })),
+		};
+		const hash = payload.queries.find((query) => query.id.toLowerCase() === id.toLowerCase())!.hash;
+		await this.client.post('/v1/trust', { workbook_id: workbookId, hashes: [hash] });
+		await this.workbook.write(payload);
+		return { id, hash };
 	}
 
 	/** The @id of the text as it is now, parsed again rather than taken from a
