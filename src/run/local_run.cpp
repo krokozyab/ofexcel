@@ -20,8 +20,6 @@ namespace ofexcel {
 
 namespace {
 
-//! An integer column holding a value this large is an id (§3.4).
-constexpr int64_t ID_FROM = 1000000000000000;
 //! Digits every BIGINT holds; an integer parameter with more is bound as HUGEINT.
 constexpr size_t BIGINT_DIGITS = 18;
 
@@ -29,7 +27,8 @@ std::string FirstLine(const std::string &text) {
 	return text.substr(0, text.find('\n'));
 }
 
-//! §14.1 for Local SQL.
+} // namespace
+
 ApiError LocalSqlError(const duckdb::ErrorData &error) {
 	const auto message = FirstLine(error.RawMessage());
 	switch (error.Type()) {
@@ -67,9 +66,7 @@ bool IsIntegerType(const duckdb::LogicalType &type) {
 	}
 }
 
-//! A result column's type in the stage table: a type §3.4 maps, close enough
-//! to keep its values, else VARCHAR; the appender casts.
-duckdb::LogicalType StageType(const duckdb::LogicalType &type) {
+duckdb::LogicalType LocalStageType(const duckdb::LogicalType &type) {
 	using duckdb::LogicalType;
 	using duckdb::LogicalTypeId;
 	if (IsIntegerType(type)) {
@@ -98,6 +95,8 @@ duckdb::LogicalType StageType(const duckdb::LogicalType &type) {
 		return LogicalType::VARCHAR;
 	}
 }
+
+namespace {
 
 //! The DuckDB type a parameter is bound as (§5.3): the type closest to its
 //! contract type. id and enum are strings, as an id column is stored (§3.2).
@@ -293,6 +292,74 @@ void RecordMissing(duckdb::Connection &connection, const std::string &workbook_i
 	               std::move(details));
 }
 
+} // namespace
+
+duckdb::identifier_map_t<duckdb::BoundParameterData> BindLocalParams(const duckdb::PreparedStatement &prepared,
+                                                                     const Plan &plan) {
+	duckdb::identifier_map_t<duckdb::BoundParameterData> named;
+	for (const auto &entry : prepared.GetNamedParameterMap()) {
+		const auto &name = entry.first.GetIdentifierName();
+		const auto *param = FindParam(plan.params, name);
+		if (!param) {
+			// The validator refuses this (V8); DuckDB found one it did not.
+			throw ApiError("E_VALIDATION", 422, "V8: $" + name + " is not declared in @param");
+		}
+		auto value = BoundValue(param->type, plan.values.at(param->name));
+		auto type = value.type();
+		named[entry.first] = duckdb::BoundParameterData(std::move(value), std::move(type));
+	}
+	return named;
+}
+
+void CreateDependencyViews(duckdb::Connection &reader, duckdb::Connection &meta,
+                           const std::vector<DependencyPlan> &depends) {
+	for (const auto &dependency : depends) {
+		std::string source;
+		if (dependency.kind == Dependency::Kind::QUERY) {
+			const auto rows = QueryRows(meta,
+			                            "SELECT current_table FROM meta.dataset_instances WHERE instance_key = $1 "
+			                            "AND status = 'ready' AND current_table IS NOT NULL",
+			                            {duckdb::Value(dependency.instance_key)});
+			if (rows.empty()) {
+				throw ApiError("E_DEPENDENCY_MISSING", 409,
+				               "Dependency " + dependency.name + " has no data: refresh it first");
+			}
+			source = "ds." + QuoteIdentifier(rows[0][0].ToString());
+		} else {
+			if (!ImportExists(meta, dependency.name)) {
+				throw ApiError("E_DEPENDENCY_MISSING", 409,
+				               "xl_import." + dependency.name + " is not loaded: import the table from the sheet");
+			}
+			source = "xl_import." + QuoteIdentifier(dependency.name);
+		}
+		Execute(reader, "CREATE TEMP VIEW " + QuoteIdentifier(dependency.name) + " AS SELECT * FROM " + source);
+	}
+}
+
+duckdb::Value DeclaredLocalValue(const std::string &name, const QueryColumn &column, const duckdb::Value &value,
+                                 int64_t row) {
+	if (value.IsNull()) {
+		return duckdb::Value(duckdb::LogicalType::VARCHAR);
+	}
+	// A TIMESTAMPTZ is UTC (no time zone extension is loaded): written with
+	// its offset, it reads as TSTZ.
+	const auto text = value.type().id() == duckdb::LogicalTypeId::TIMESTAMP_TZ
+	                      ? value.DefaultCastAs(duckdb::LogicalType::TIMESTAMP).ToString() + " +00:00"
+	                      : value.ToString();
+	if (column.type.kind == ColumnKind::STRING || column.type.kind == ColumnKind::TEXT) {
+		return duckdb::Value(text);
+	}
+	std::string stored;
+	if (!text.empty() && ConvertOracleValue(column.type, text, stored) == StoredValue::VALUE) {
+		return duckdb::Value(stored);
+	}
+	throw ApiError("E_TYPE_DECLARED_MISMATCH", 422,
+	               "column " + name + " is declared as " + column.type.ToString() + ", but in row " +
+	                   std::to_string(row) + " the value is \"" + text + "\"");
+}
+
+namespace {
+
 class LocalRun : public RunWork {
 public:
 	using RunWork::RunWork;
@@ -301,7 +368,7 @@ protected:
 	void Fetch(Outcome &outcome) override {
 		RunDependencies();
 		ThrowIfStopping();
-		CreateViews();
+		CreateDependencyViews(reader, writer, plan.depends);
 		const auto error = ReadIntoStage(outcome);
 		if (error.HasError()) {
 			if (Stopping()) {
@@ -381,51 +448,14 @@ private:
 		}
 	}
 
-	//! §5.3: each dependency under its short name, for this connection only;
-	//! they go with it when the run ends.
-	void CreateViews() {
-		for (const auto &dependency : plan.depends) {
-			std::string source;
-			if (dependency.kind == Dependency::Kind::QUERY) {
-				const auto rows = QueryRows(writer,
-				                            "SELECT current_table FROM meta.dataset_instances WHERE instance_key = $1 "
-				                            "AND status = 'ready' AND current_table IS NOT NULL",
-				                            {duckdb::Value(dependency.instance_key)});
-				if (rows.empty()) {
-					throw ApiError("E_DEPENDENCY_MISSING", 409,
-					               "Dependency " + dependency.name + " has no data: refresh it first");
-				}
-				source = "ds." + QuoteIdentifier(rows[0][0].ToString());
-			} else {
-				if (!ImportExists(writer, dependency.name)) {
-					throw ApiError("E_DEPENDENCY_MISSING", 409,
-					               "xl_import." + dependency.name + " is not loaded: import the table from the sheet");
-				}
-				source = "xl_import." + QuoteIdentifier(dependency.name);
-			}
-			Execute(reader, "CREATE TEMP VIEW " + QuoteIdentifier(dependency.name) + " AS SELECT * FROM " + source);
-		}
-	}
-
 	//! The body as a prepared statement with $name bound (§5.3).
 	duckdb::ErrorData ReadIntoStage(Outcome &outcome) {
 		auto prepared = reader.Prepare(plan.body);
 		if (prepared->HasError()) {
 			return prepared->GetErrorObject();
 		}
-		duckdb::identifier_map_t<duckdb::BoundParameterData> named;
-		for (const auto &entry : prepared->GetNamedParameterMap()) {
-			const auto &name = entry.first.GetIdentifierName();
-			const auto *param = FindParam(plan.params, name);
-			if (!param) {
-				// The validator refuses this (V8); DuckDB found one it did not.
-				throw ApiError("E_VALIDATION", 422, "V8: $" + name + " is not declared in @param");
-			}
-			auto value = BoundValue(param->type, plan.values.at(param->name));
-			auto type = value.type();
-			named[entry.first] = duckdb::BoundParameterData(std::move(value), std::move(type));
-		}
-		return StreamIntoStage([&]() { return prepared->Submit(named); }, StageType, outcome);
+		auto named = BindLocalParams(*prepared, plan);
+		return StreamIntoStage([&]() { return prepared->Submit(named); }, LocalStageType, outcome);
 	}
 
 	const QueryColumn *Declared(const std::string &name) const {
@@ -449,8 +479,8 @@ private:
 			}
 			const auto column = "c" + std::to_string(i);
 			select += std::string(select.empty() ? "" : ", ") + "coalesce(bool_or(" + column +
-			          " >= " + std::to_string(ID_FROM) + " OR " + column + " <= -" + std::to_string(ID_FROM) +
-			          "), false)";
+			          " >= " + std::to_string(LOCAL_ID_FROM) + " OR " + column + " <= -" +
+			          std::to_string(LOCAL_ID_FROM) + "), false)";
 			integer_columns.push_back(i);
 		}
 		if (integer_columns.empty()) {
@@ -461,35 +491,6 @@ private:
 			large[integer_columns[k]] = rows[0][k].GetValue<bool>();
 		}
 		return large;
-	}
-
-	//! A stage value as text in the form §3.3's rules read. A TIMESTAMPTZ is
-	//! UTC (no time zone extension is loaded), written with its offset.
-	static std::string ValueText(const duckdb::Value &value) {
-		if (value.type().id() == duckdb::LogicalTypeId::TIMESTAMP_TZ) {
-			return value.DefaultCastAs(duckdb::LogicalType::TIMESTAMP).ToString() + " +00:00";
-		}
-		return value.ToString();
-	}
-
-	//! §3.3 item 1, as for an Oracle result: the value must fit the @column
-	//! type. '' stays '' (DuckDB tells it from NULL), so only a string holds it.
-	duckdb::Value DeclaredValue(const std::string &name, const QueryColumn &column, const duckdb::Value &value,
-	                            int64_t row) const {
-		if (value.IsNull()) {
-			return duckdb::Value(duckdb::LogicalType::VARCHAR);
-		}
-		const auto text = ValueText(value);
-		if (column.type.kind == ColumnKind::STRING || column.type.kind == ColumnKind::TEXT) {
-			return duckdb::Value(text);
-		}
-		std::string stored;
-		if (!text.empty() && ConvertOracleValue(column.type, text, stored) == StoredValue::VALUE) {
-			return duckdb::Value(stored);
-		}
-		throw ApiError("E_TYPE_DECLARED_MISMATCH", 500,
-		               "column " + name + " is declared as " + column.type.ToString() + ", but in row " +
-		                   std::to_string(row) + " the value is \"" + text + "\"");
 	}
 
 	void StoreRows(Outcome &outcome) {
@@ -538,8 +539,8 @@ private:
 				}
 				for (duckdb::idx_t row = 0; row < chunk.size(); row++) {
 					converted.SetValue(i, row,
-					                   DeclaredValue(names[i], *declared[i], chunk.GetValue(i, row),
-					                                 rows_before + static_cast<int64_t>(row) + 1));
+					                   DeclaredLocalValue(names[i], *declared[i], chunk.GetValue(i, row),
+					                                      rows_before + static_cast<int64_t>(row) + 1));
 				}
 			}
 			converted.SetCardinality(chunk.size());

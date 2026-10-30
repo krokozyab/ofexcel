@@ -39,6 +39,7 @@ set(EXTENSION_SOURCES
         src/run/run_work.cpp
         src/run/oracle_run.cpp
         src/run/local_run.cpp
+        src/run/preview.cpp
         src/run/run_engine.cpp
         src/meta/migrations.cpp
         src/meta/connections.cpp

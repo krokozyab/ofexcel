@@ -15,11 +15,6 @@ namespace ofexcel {
 
 namespace {
 
-//! §5.1, exactly. The SQL and the secret are parameters, never spliced in.
-constexpr const char *ORACLE_QUERY_SQL =
-    "SELECT * FROM oracle_fusion_query($1, secret := $2, all_varchar := true, on_cast_error := 'error', "
-    "fetch_size := $3)";
-
 class OracleRun : public RunWork {
 public:
 	using RunWork::RunWork;

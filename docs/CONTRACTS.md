@@ -819,6 +819,14 @@ type RowsPage = {
 - `query` из книги без доверия — 403 `E_NOT_TRUSTED`.
 - Preview не создаёт экземпляр dataset'а и не пишет в `meta.runs`. Типы — по §3.3 на строках Preview (без записи в `meta.query_schemas`).
 
+**Уточнения реализации** (`src/run/preview.cpp`, маршрут — `src/server/routes_runs.cpp`):
+- `query` ищется по хешу среди всех зарегистрированных определений, в том числе любой книги: у хеша один текст, и доверие — его свойство. `id` должен совпасть без учёта регистра, иначе 404 `E_NOT_FOUND`.
+- `limit` — целое от 1 до 200, по умолчанию 200; иначе 422 `E_BAD_REQUEST`. Ни `text`, ни `query`, или оба — 422 `E_BAD_REQUEST`. `params` и `connection` — как у `POST /v1/runs`.
+- Читается до `limit + 1` строки, как в §5.4; страница ofquack — 200 строк (§5.1), так что при `limit = 200` и больших данных это вторая страница. `truncated` — строка `limit + 1` была. `elapsed_ms` — весь вызов.
+- Oracle: стартовый тип колонки — из `meta.query_schemas` этого хеша (§3.3 п. 2), схема только читается. Пустой результат — не ошибка: колонки по §5.2 (схема и `@column`), а если схема неизвестна — `columns: []`.
+- Local: зависимости не запускаются, читаются их текущие версии; зависимость без данных — 409 `E_DEPENDENCY_MISSING` с `details` по §5.3, но без записи в `meta.missing`. Значения хранятся и кодируются так же, как при запуске (§3.4, Р9).
+- Ошибки — по §14.1 со статусами из §14; `E_TYPE_DECLARED_MISMATCH` — 422. Preview прерывается по `ofexcel_run_timeout`: 504 `E_TIMEOUT`.
+
 **`POST /v1/runs`**
 ```ts
 { query: QueryRef; connection?: string; params: Record<string, ParamValue>;
@@ -1109,7 +1117,7 @@ stdout — одна строка `listening on https://127.0.0.1:<port>`; стр
 | `E_DEPENDENCY_MISSING` | 409 | `notAvailable` | Нет экземпляра зависимости |
 | `E_DEPENDENCY_FAILED` | — (в `Run.error`) | — | Зависимость упала |
 | `E_EMPTY_UNKNOWN_SCHEMA` | — (в `Run.error`) | `notAvailable` | §5.2 |
-| `E_TYPE_DECLARED_MISMATCH` | — (в `Run.error`) | `notAvailable` | §3.3 |
+| `E_TYPE_DECLARED_MISMATCH` | — (в `Run.error`); 422 в Preview | `notAvailable` | §3.3 |
 | `E_FUSION_AUTH` | 409 | `notAvailable` | Нет входа, токен истёк, вход не завершён |
 | `E_FUSION_REJECTED` | 502 | `notAvailable` | Oracle отклонил запрос (ошибка SQL, прав) |
 | `E_FUSION_UNAVAILABLE` | 503 | `notAvailable` | Сеть, BIP недоступен, сработал circuit breaker ofquack |

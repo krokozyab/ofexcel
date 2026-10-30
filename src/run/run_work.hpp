@@ -48,6 +48,15 @@ struct RunEngine::Active {
 //! when it does, so one is not enough.
 constexpr auto INTERRUPT_REPEAT = std::chrono::milliseconds(100);
 
+//! §5.1, exactly. The SQL and the secret are parameters, never spliced in.
+constexpr const char *ORACLE_QUERY_SQL =
+    "SELECT * FROM oracle_fusion_query($1, secret := $2, all_varchar := true, on_cast_error := 'error', "
+    "fetch_size := $3)";
+
+//! An integer column of a Local result holding a value this large is an id
+//! (§3.4).
+constexpr int64_t LOCAL_ID_FROM = 1000000000000000;
+
 constexpr const char *WARNING_PARAM_UNUSED = "W_PARAM_UNUSED";
 constexpr const char *WARNING_TYPE_WIDENED = "W_TYPE_WIDENED";
 constexpr const char *WARNING_NUMBER_PRECISION = "W_NUMBER_PRECISION";
@@ -65,6 +74,9 @@ std::string Lower(std::string text);
 duckdb::Value NullableString(const std::string &text);
 
 duckdb::Value Now();
+
+//! ofexcel_run_timeout, in seconds.
+int64_t RunTimeoutSetting(duckdb::Connection &connection);
 
 //! One @depends of a Local run, as Start resolved it (§5.3).
 struct DependencyPlan {
@@ -189,6 +201,34 @@ void Watch(RunEngine::Active &run, int64_t timeout_seconds);
 
 std::unique_ptr<RunWork> OracleWork(duckdb::DatabaseInstance &db, RunEngine::Active &run, const Plan &plan);
 std::unique_ptr<RunWork> LocalWork(duckdb::DatabaseInstance &db, RunEngine::Active &run, const Plan &plan);
+
+// --- Local SQL, shared by a Local run and Preview (local_run.cpp) -------------
+
+//! §14.1 for Local SQL.
+ApiError LocalSqlError(const duckdb::ErrorData &error);
+
+bool IsIntegerType(const duckdb::LogicalType &type);
+
+//! A Local result column's type before it is stored: a type §3.4 maps, close
+//! enough to keep its values, else VARCHAR. Integers stay as they are: their
+//! values decide between integer and id.
+duckdb::LogicalType LocalStageType(const duckdb::LogicalType &type);
+
+//! plan.values for the $name the prepared body uses, typed as §5.3 binds them.
+duckdb::identifier_map_t<duckdb::BoundParameterData> BindLocalParams(const duckdb::PreparedStatement &prepared,
+                                                                     const Plan &plan);
+
+//! §5.3: each dependency under its short name, as a temporary view on
+//! `reader`; they go with the connection. `meta` reads meta.*. A dependency
+//! without data is E_DEPENDENCY_MISSING (409).
+void CreateDependencyViews(duckdb::Connection &reader, duckdb::Connection &meta,
+                           const std::vector<DependencyPlan> &depends);
+
+//! §3.3 item 1 for a Local value in a column declared with @column: the
+//! text to store, or E_TYPE_DECLARED_MISMATCH naming the 1-based `row`. ''
+//! stays '' (DuckDB tells it from NULL), so only a string holds it.
+duckdb::Value DeclaredLocalValue(const std::string &name, const QueryColumn &column, const duckdb::Value &value,
+                                 int64_t row);
 
 //! Start's part for a Local query (§5.3): validates the SQL (§7), normalizes
 //! the parameters and resolves every @depends to the instance it reads. Throws

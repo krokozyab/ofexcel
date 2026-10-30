@@ -32,6 +32,15 @@ duckdb::Value Now() {
 	return duckdb::Value::TIMESTAMP(duckdb::Timestamp::GetCurrentTimestamp());
 }
 
+int64_t RunTimeoutSetting(duckdb::Connection &connection) {
+	const auto outcome = TryQueryRows(connection, "SELECT current_setting('ofexcel_run_timeout')", {});
+	if (!outcome.Ok() || outcome.rows.empty() || outcome.rows[0][0].IsNull()) {
+		return DEFAULT_RUN_TIMEOUT_SECONDS;
+	}
+	const auto seconds = outcome.rows[0][0].GetValue<int64_t>();
+	return seconds > 0 ? seconds : DEFAULT_RUN_TIMEOUT_SECONDS;
+}
+
 void Watch(RunEngine::Active &run, int64_t timeout_seconds) {
 	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
 	std::unique_lock<std::mutex> lock(run.mutex);

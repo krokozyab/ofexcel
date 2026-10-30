@@ -1,6 +1,7 @@
-// Runs and datasets over HTTP (CONTRACTS.md §8.3; TASKS.md C4): starting a run,
-// following and cancelling it, reading its rows, and the dataset instances
-// runs leave behind. The runs themselves are src/run/run_engine.cpp.
+// Runs and datasets over HTTP (CONTRACTS.md §8.3; TASKS.md C4, C6): starting a
+// run, following and cancelling it, reading its rows, the dataset instances runs
+// leave behind, and Preview. The runs themselves are src/run/run_engine.cpp,
+// Preview is src/run/preview.cpp.
 
 #include "routes.hpp"
 
@@ -10,6 +11,7 @@
 #include "ofexcel/db_util.hpp"
 #include "ofexcel/json_body.hpp"
 #include "ofexcel/param_values.hpp"
+#include "ofexcel/preview.hpp"
 #include "ofexcel/query_registry.hpp"
 #include "ofexcel/result_types.hpp"
 #include "ofexcel/run_engine.hpp"
@@ -451,6 +453,99 @@ void ListRunsRoute(const httplib::Request &request, httplib::Response &response,
 	SendJson(response, 200, body.Serialize());
 }
 
+// --- /v1/preview -----------------------------------------------------------------
+
+//! limit: an integer from 1 to PREVIEW_MAX_ROWS; absent is PREVIEW_MAX_ROWS.
+int64_t PreviewLimit(const JsonValue &body) {
+	const auto value = body.Get("limit");
+	if (value.Is(JsonKind::MISSING)) {
+		return PREVIEW_MAX_ROWS;
+	}
+	const auto text = value.Is(JsonKind::NUMBER) ? value.NumberText() : "";
+	const bool digits =
+	    !text.empty() && text.size() <= 3 && std::all_of(text.begin(), text.end(), [](unsigned char c) {
+		    return std::isdigit(c);
+	    });
+	const auto limit = digits ? std::stoll(text) : 0;
+	if (limit < 1 || limit > PREVIEW_MAX_ROWS) {
+		throw ApiError("E_BAD_REQUEST", 422, "limit must be an integer from 1 to " + std::to_string(PREVIEW_MAX_ROWS));
+	}
+	return limit;
+}
+
+//! The text an author is writing needs no trust; a registered query does,
+//! as a run would (SPEC.md §8.3).
+void PreviewRoute(const httplib::Request &request, httplib::Response &response, duckdb::Connection &connection) {
+	const auto document = ParseBody(request);
+	const auto body = document.Root();
+	const auto text = body.Get("text");
+	const auto query = body.Get("query");
+	const bool has_text = !text.Is(JsonKind::MISSING) && !text.Is(JsonKind::NULL_VALUE);
+	const bool has_query = !query.Is(JsonKind::MISSING) && !query.Is(JsonKind::NULL_VALUE);
+	if (has_text == has_query) {
+		throw ApiError("E_BAD_REQUEST", 422, "Pass exactly one of text and query");
+	}
+
+	PreviewRequest preview;
+	if (has_text) {
+		if (!text.Is(JsonKind::STRING)) {
+			throw ApiError("E_BAD_REQUEST", 422, "text must be a string");
+		}
+		preview.text = text.String();
+	} else {
+		if (!query.Is(JsonKind::OBJECT)) {
+			throw ApiError("E_BAD_REQUEST", 422, "query must be an object {id, hash}");
+		}
+		const auto query_id = RequiredString(query, "id");
+		const auto hash = RequiredString(query, "hash");
+		// Any source: a hash is one text, and trust is the hash's.
+		QueryDefinition definition;
+		if (!FindDefinitionByHash(connection, hash, definition) || Lower(definition.query_id) != Lower(query_id)) {
+			throw ApiError("E_NOT_FOUND", 404, "No query " + query_id + " with hash " + hash);
+		}
+		if (!IsDefinitionTrusted(connection, definition)) {
+			throw ApiError("E_NOT_TRUSTED", 403,
+			               "Query " + definition.query_id +
+			                   " is not trusted. Confirm the workbook's queries before running them");
+		}
+		preview.text = definition.text;
+	}
+	preview.connection = OptionalString(body, "connection");
+	const auto params = body.Get("params");
+	if (!params.Is(JsonKind::MISSING) && !params.Is(JsonKind::OBJECT)) {
+		throw ApiError("E_BAD_REQUEST", 422, "params must be an object");
+	}
+	for (const auto &name : params.Keys()) {
+		preview.params[name] = ToParamInput(name, params.Get(name));
+	}
+	preview.limit = PreviewLimit(body);
+
+	const auto result = RunPreview(*connection.context->db, preview);
+	JsonObject out;
+	auto columns = out.SetArray("columns");
+	for (const auto &column : result.columns) {
+		JsonObject info;
+		info.Set("name", column.name).Set("header", column.header).Set("type", column.type.ToString());
+		columns.AddObject(info);
+	}
+	auto rows = out.SetArray("rows");
+	for (const auto &values : result.rows) {
+		auto row = rows.AddArray();
+		for (size_t i = 0; i < values.size(); i++) {
+			AddCell(row, result.columns[i].type, values[i]);
+		}
+	}
+	out.Set("elapsed_ms", result.elapsed_ms).Set("truncated", result.truncated);
+	if (result.oracle) {
+		out.Set("rendered_sql", result.rendered_sql);
+	}
+	auto warnings = out.SetArray("warnings");
+	for (const auto &warning : result.warnings) {
+		warnings.AddObject(ErrorJson(warning.code, warning.message));
+	}
+	SendJson(response, 200, out.Serialize());
+}
+
 // --- /v1/datasets ----------------------------------------------------------------
 
 const char *const DATASET_COLUMNS = "SELECT instance_key, query_id, definition_hash, connection_name, params_json, "
@@ -557,6 +652,7 @@ void RegisterRunRoutes(httplib::Server &server, const RouteContext &context) {
 	server.Get(R"(/v1/runs/([^/]+))", WithConnection(context, GetRunRoute));
 	server.Post(R"(/v1/runs/([^/]+)/cancel)", WithConnection(context, CancelRunRoute));
 	server.Get(R"(/v1/runs/([^/]+)/rows)", WithConnection(context, RunRowsRoute));
+	server.Post("/v1/preview", WithConnection(context, PreviewRoute));
 	server.Get("/v1/datasets", WithConnection(context, ListDatasetsRoute));
 	server.Get(R"(/v1/datasets/([^/]+)/rows)", WithConnection(context, DatasetRowsRoute));
 	server.Delete(R"(/v1/datasets/([^/]+))", WithConnection(context, DeleteDatasetRoute));

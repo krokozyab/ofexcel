@@ -17,15 +17,6 @@ namespace ofexcel {
 
 namespace {
 
-int64_t RunTimeoutSetting(duckdb::Connection &connection) {
-	const auto outcome = TryQueryRows(connection, "SELECT current_setting('ofexcel_run_timeout')", {});
-	if (!outcome.Ok() || outcome.rows.empty() || outcome.rows[0][0].IsNull()) {
-		return DEFAULT_RUN_TIMEOUT_SECONDS;
-	}
-	const auto seconds = outcome.rows[0][0].GetValue<int64_t>();
-	return seconds > 0 ? seconds : DEFAULT_RUN_TIMEOUT_SECONDS;
-}
-
 duckdb::Value Environment(duckdb::Connection &connection, const std::string &name) {
 	const auto rows =
 	    QueryRows(connection, "SELECT environment FROM meta.connections WHERE name = $1", {duckdb::Value(name)});

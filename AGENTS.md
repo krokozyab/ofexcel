@@ -59,7 +59,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_connections_test  # connections, secrets after restart, sign-in
 ./build/release/extension/ofexcel/ofexcel_queries_test      # query registry: projects, workbooks, resolution
 ./build/release/extension/ofexcel/ofexcel_runs_test         # Oracle runs through the fake transport: types, limits, cancel
-./build/release/extension/ofexcel/ofexcel_runs_api_test     # trust, /v1/runs*, /v1/datasets*, deps over HTTPS
+./build/release/extension/ofexcel/ofexcel_runs_api_test     # trust, /v1/runs*, /v1/datasets*, deps, /v1/preview over HTTPS
 ./build/release/extension/ofexcel/ofexcel_local_runs_test   # Local runs: dependencies, deps modes, meta.missing, types
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
@@ -107,6 +107,7 @@ src/run/run_engine.cpp      the run engine: Start checks and plans a run, one pe
 src/run/run_work.cpp        what every run shares: watchdog, stage table, new version and swap (§5.4, §6.4)
 src/run/oracle_run.cpp      Oracle runs: ofquack → stage → types over the whole result (§5.1, §5.2, §3.3)
 src/run/local_run.cpp       Local runs: dependencies, temporary views, $name bound, §3.2 storage (§5.3)
+src/run/preview.cpp         Preview: first rows of a text or saved query, typed, nothing stored (§8.3)
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/meta/connections.cpp    meta.connections and the oracle_fusion secrets beside them (§8.3, §13)
@@ -119,7 +120,7 @@ src/server/http_server.cpp  HTTPS server lifecycle, guard, CORS, error fallbacks
 src/server/routes.hpp       what a route file needs
 src/server/routes_*.cpp     one file per route group; routes_addin.cpp serves /addin/* (local profile)
 src/server/routes_queries.cpp  /v1/queries*, /v1/workbooks/{id}/queries, /v1/trust
-src/server/routes_runs.cpp     /v1/runs*, /v1/datasets*: start, follow, cancel, rows pages
+src/server/routes_runs.cpp     /v1/runs*, /v1/datasets*, /v1/preview: start, follow, cancel, rows pages
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 test/sql/                   sqllogictests

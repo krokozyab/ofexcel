@@ -1,5 +1,5 @@
-// Trust (TASKS.md C2), runs and datasets (TASKS.md C4) and Local runs with
-// their dependencies (TASKS.md C5) over HTTPS, against a
+// Trust (TASKS.md C2), runs and datasets (TASKS.md C4), Local runs with their
+// dependencies (TASKS.md C5) and Preview (TASKS.md C6) over HTTPS, against a
 // live server started by serve's own start sequence, with ofquack's transport
 // replaced by a scripted fake: no Fusion, no network beyond 127.0.0.1.
 
@@ -610,6 +610,110 @@ void TestLocalRuns(Daemon &daemon) {
 	                   "'{\"bu\":\"7\",\"period\":\"2026-07\"}'") == "2");
 }
 
+// --- C6: Preview -----------------------------------------------------------------
+
+std::string PreviewBody(const std::string &source, const std::string &extra = "") {
+	return "{" + source + extra + "}";
+}
+
+std::string TextSource(const std::string &text) {
+	return "\"text\":" + JsonString(text);
+}
+
+std::string QuerySource(const std::string &text) {
+	return "\"query\":{\"id\":\"" + ofexcel::ParseQueryFile(text).header.id + "\",\"hash\":\"" +
+	       ofexcel::DefinitionHash(text) + "\"}";
+}
+
+//! The first rows of a text or a saved query, typed, and nothing stored: no
+//! run, no instance, no schema. A saved query of a workbook needs trust.
+void TestPreview(Daemon &daemon) {
+	Api api(daemon.port);
+	const auto stored = [&]() {
+		return daemon.Value("SELECT count(*) FROM meta.runs") + " " +
+		       daemon.Value("SELECT count(*) FROM meta.dataset_instances") + " " +
+		       daemon.Value("SELECT count(*) FROM meta.query_schemas");
+	};
+	const auto before = stored();
+
+	// The author's text needs no trust; Oracle's answer carries the SQL sent.
+	const auto drafted = Query("drafted", "-- @param bu: integer\n-- @param unused: string = x\n",
+	                           "SELECT invoice_id, amt, note FROM ap_invoices WHERE bu = :bu");
+	script.Answer(Page(InvoiceRows()));
+	auto preview = api.Post("/v1/preview", PreviewBody(TextSource(drafted), ",\"params\":{\"bu\":204}"));
+	CheckStatus(preview, 200);
+	CHECK(Contains(preview->body, "{\"columns\":[{\"name\":\"INVOICE_ID\",\"header\":\"INVOICE_ID\",\"type\":\"id\"},"
+	                              "{\"name\":\"AMT\",\"header\":\"AMT\",\"type\":\"decimal(38,2)\"},"
+	                              "{\"name\":\"NOTE\",\"header\":\"NOTE\",\"type\":\"string\"}],"
+	                              "\"rows\":[[\"101\",\"0.84\",\"first\"],[\"102\",\"-1.5\",null]],\"elapsed_ms\":"));
+	CHECK(Field(preview->body, "truncated") == "false");
+	CHECK(Contains(Field(preview->body, "rendered_sql"), "WHERE bu = 204"));
+	CHECK(Contains(preview->body, "\"warnings\":[{\"code\":\"W_PARAM_UNUSED\""));
+	// One page of 200 rows (§5.1).
+	CHECK(Contains(script.FirstSql(), "FETCH NEXT 200 ROWS ONLY"));
+	CHECK(Contains(script.FirstSql(), "bu = 204"));
+
+	script.Answer(Page(InvoiceRows()));
+	preview = api.Post("/v1/preview", PreviewBody(TextSource(drafted), ",\"params\":{\"bu\":1},\"limit\":1"));
+	CheckStatus(preview, 200);
+	CHECK(Contains(preview->body, "\"rows\":[[\"101\",\"0.84\",\"first\"]],"));
+	CHECK(Field(preview->body, "truncated") == "true");
+
+	// What the request may not be.
+	for (const auto *limit : {"0", "201", "1.5", "\"10\"", "-1"}) {
+		CheckStatus(api.Post("/v1/preview", PreviewBody(TextSource(drafted), std::string(",\"limit\":") + limit)), 422,
+		            "E_BAD_REQUEST");
+	}
+	CheckStatus(api.Post("/v1/preview", "{\"params\":{}}"), 422, "E_BAD_REQUEST");
+	CheckStatus(api.Post("/v1/preview", PreviewBody(TextSource(drafted), "," + QuerySource(INVOICES))), 422,
+	            "E_BAD_REQUEST");
+	CheckStatus(api.Post("/v1/preview", PreviewBody(TextSource("-- @id: x\nSELECT 1"))), 422, "E_QUERY_PARSE");
+	CheckStatus(api.Post("/v1/preview", PreviewBody(TextSource(drafted))), 422, "E_PARAM_MISSING");
+	CheckStatus(api.Post("/v1/preview", PreviewBody(QuerySource(Query("nowhere", "", "SELECT 1 FROM dual")))), 404,
+	            "E_NOT_FOUND");
+
+	// A saved query of a project is trusted by its source.
+	script.Answer(Page(InvoiceRows()));
+	preview = api.Post("/v1/preview", PreviewBody(QuerySource(INVOICES), ",\"params\":{\"period\":\"2026-09\"}"));
+	CheckStatus(preview, 200);
+	CHECK(Contains(preview->body, "\"rows\":[[\"101\",\"0.84\",\"first\"],[\"102\",\"-1.5\",null]]"));
+	CHECK(Contains(script.FirstSql(), "period = '2026-09'"));
+
+	// A workbook's saved query: 403 until the user confirms it (moved here
+	// from C2, which had no Preview yet).
+	const auto shared = Query("previewed", "", "SELECT invoice_id, amt, note FROM ap_invoices WHERE 2 = 2");
+	CheckStatus(api.Put(std::string("/v1/workbooks/") + WORKBOOK + "/queries",
+	                    "{\"queries\":[{\"text\":" + JsonString(shared) + "}]}"),
+	            200);
+	CheckStatus(api.Post("/v1/preview", PreviewBody(QuerySource(shared))), 403, "E_NOT_TRUSTED");
+	CheckStatus(api.Post("/v1/trust", std::string("{\"workbook_id\":\"") + WORKBOOK + "\",\"hashes\":[\"" +
+	                                      ofexcel::DefinitionHash(shared) + "\"]}"),
+	            200);
+	script.Answer(Page(InvoiceRows()));
+	CheckStatus(api.Post("/v1/preview", PreviewBody(QuerySource(shared))), 200);
+
+	// Local: no rendered SQL; §3.4 types; the dependency's data as it is.
+	const auto counted = "-- @id: counted\n-- @engine: local\n-- @version: 1\n-- @param n: integer = 5\n"
+	                     "SELECT x AS n_id, x * 2 AS twice FROM range($n) AS t(x) ORDER BY x\n";
+	preview = api.Post("/v1/preview", PreviewBody(TextSource(counted), ",\"limit\":3"));
+	CheckStatus(preview, 200);
+	CHECK(Contains(preview->body, "{\"columns\":[{\"name\":\"n_id\",\"header\":\"n_id\",\"type\":\"id\"},"
+	                              "{\"name\":\"twice\",\"header\":\"twice\",\"type\":\"integer\"}],"
+	                              "\"rows\":[[\"0\",0],[\"1\",2],[\"2\",4]],"));
+	CHECK(Field(preview->body, "truncated") == "true");
+	CHECK(!Contains(preview->body, "rendered_sql"));
+	preview = api.Post("/v1/preview", PreviewBody(TextSource(INVOICE_TOTAL), ",\"params\":{\"bu\":7}"));
+	CheckStatus(preview, 200);
+	CHECK(Contains(preview->body, "\"rows\":[[2,\"-0.66\"]],"));
+	CheckStatus(api.Post("/v1/preview", PreviewBody(TextSource(INVOICE_TOTAL), ",\"params\":{\"bu\":99}")), 409,
+	            "E_DEPENDENCY_MISSING");
+	CheckStatus(api.Post("/v1/preview",
+	                     PreviewBody(TextSource("-- @id: l\n-- @engine: local\n-- @version: 1\nSELECT * FROM t\n"))),
+	            422, "E_VALIDATION");
+
+	CHECK(stored() == before);
+}
+
 } // namespace
 
 int main() {
@@ -638,6 +742,7 @@ int main() {
 		TestListRuns(daemon);
 		TestDatasets(daemon);
 		TestLocalRuns(daemon);
+		TestPreview(daemon);
 	}
 	std::cout << "runs_api_test: all checks passed\n";
 	return 0;
