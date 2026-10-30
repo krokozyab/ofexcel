@@ -1,9 +1,12 @@
 #pragma once
 
-// Oracle runs (CONTRACTS.md §5.1, §5.2, §5.4, §6.3, §6.4, §14.1; TASKS.md C3):
-// from the rendered SQL to a new version of the dataset instance. A run reads
-// from ofquack on a connection of its own, the one cancellation and the
-// timeout interrupt (DECISIONS.md R3), and writes on another.
+// Runs (CONTRACTS.md §5, §6.3, §6.4, §14.1; TASKS.md C3, C5): from a query
+// definition to a new version of its dataset instance. An Oracle run renders
+// its SQL and reads from ofquack; a Local run first runs or finds its
+// dependencies and then runs its SQL in DuckDB. Either reads on a connection
+// of its own, the one cancellation and the timeout interrupt (DECISIONS.md
+// R3), and writes on another. The engines are src/run/oracle_run.cpp and
+// src/run/local_run.cpp.
 
 #include "duckdb.hpp"
 #include "ofexcel/param_values.hpp"
@@ -16,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace ofexcel {
 
@@ -25,6 +29,16 @@ constexpr int64_t DEFAULT_FETCH_SIZE = 10000;
 constexpr int64_t DEFAULT_MAX_ROWS = 1000000;
 //! ofexcel_run_timeout's default, in seconds (§5.4).
 constexpr int64_t DEFAULT_RUN_TIMEOUT_SECONDS = 1800;
+
+//! Which dependencies a Local run starts before its own SQL (§8.3 `deps`).
+enum class DepsMode {
+	//! Those without a ready instance.
+	MISSING,
+	//! All of them.
+	ALL,
+	//! None: a dependency without a ready instance is E_DEPENDENCY_MISSING.
+	NONE
+};
 
 struct RunRequest {
 	//! As the registry has it: the text is parsed again here, so a run never
@@ -38,6 +52,10 @@ struct RunRequest {
 	//! A run of the same instance already going is E_CONFLICT instead of that
 	//! run's id (§6.4).
 	bool force = false;
+	DepsMode deps = DepsMode::MISSING;
+	//! The Local queries this run is a dependency of, outermost first: meeting
+	//! one of them again among the dependencies is a cycle.
+	std::vector<std::string> ancestry;
 };
 
 struct RunStart {
@@ -52,12 +70,14 @@ public:
 	static RunEngine &Get();
 	~RunEngine();
 
-	//! Checks the request, renders the SQL, writes the run's row to meta.runs
-	//! and the instance's to meta.dataset_instances, and starts reading in the
+	//! Checks the request, writes the run's row to meta.runs and the
+	//! instance's to meta.dataset_instances, and starts the run in the
 	//! background. Throws ApiError for a request that cannot run:
-	//! E_QUERY_PARSE, E_NOT_TRUSTED (403, SPEC.md §8.3), E_UNSUPPORTED (a local
-	//! query, TASKS.md C5), E_BAD_REQUEST (no connection), E_NOT_FOUND (no such
-	//! connection), E_PARAM_* and E_SQL_* from rendering, E_CONFLICT with `force`.
+	//! E_QUERY_PARSE, E_NOT_TRUSTED (403, SPEC.md §8.3), E_PARAM_*, E_CONFLICT
+	//! with `force`; for Oracle, E_BAD_REQUEST (no connection), E_NOT_FOUND (no
+	//! such connection) and E_SQL_* from rendering; for Local, E_VALIDATION and
+	//! E_SQL_COMPILE from validation (§7), E_BAD_REQUEST (no connection for an
+	//! Oracle dependency) and E_DEPENDENCY_MISSING (409, §5.3).
 	RunStart Start(duckdb::DatabaseInstance &db, const RunRequest &request);
 
 	//! Returns once the run has finished and its row in meta.runs says how.

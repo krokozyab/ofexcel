@@ -1,5 +1,6 @@
 #include "ofexcel/param_values.hpp"
 
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -277,6 +278,49 @@ ParamResult NormalizeParam(const ParamType &type, const CanonicalValue *default_
 		elements.push_back(std::move(result.value.scalar));
 	}
 	return Ok(CanonicalValue::List(std::move(elements)));
+}
+
+ParamsResult NormalizeParams(const std::vector<QueryParam> &params, const std::map<std::string, ParamInput> &inputs) {
+	ParamsResult result;
+	const auto refuse = [&](const char *code, std::string message) {
+		result.code = code;
+		result.message = std::move(message);
+		return result;
+	};
+	const auto declared = [&](const std::string &name) {
+		for (const auto &param : params) {
+			if (param.name == name) {
+				return true;
+			}
+		}
+		return false;
+	};
+	// Names match without regard to case, as in the text.
+	std::map<std::string, const ParamInput *> by_name;
+	for (const auto &input : inputs) {
+		auto name = input.first;
+		for (auto &c : name) {
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		}
+		if (!declared(name)) {
+			return refuse("E_PARAM_UNKNOWN", "parameter " + input.first + " is not declared in @param");
+		}
+		if (!by_name.emplace(name, &input.second).second) {
+			return refuse("E_PARAM_UNKNOWN", "parameter " + name + " is passed twice");
+		}
+	}
+	const auto missing = ParamInput::Missing();
+	for (const auto &param : params) {
+		const auto input = by_name.find(param.name);
+		const auto normalized = NormalizeParam(param.type, param.has_default ? &param.default_value : nullptr,
+		                                       input == by_name.end() ? missing : *input->second);
+		if (!normalized.ok) {
+			return refuse(normalized.code.c_str(), "parameter " + param.name + ": " + normalized.message);
+		}
+		result.values[param.name] = normalized.value;
+	}
+	result.ok = true;
+	return result;
 }
 
 } // namespace ofexcel

@@ -393,6 +393,15 @@ void TestValidate(Daemon &daemon) {
 	CheckStatus(response, 200);
 	CHECK(Contains(response->body, "\"ok\":true"));
 	CHECK(Contains(response->body, "\"params_in_text\":[\"p\"]"));
+	// A parameter passed on to a dependency is used, though not in the SQL.
+	response = api.Post("/v1/queries/validate",
+	                    "{\"text\":" +
+	                        JsonString(Query("l", 1, "-- @param p: integer\n-- @depends: src(n := $p)\n",
+	                                         "SELECT * FROM src", "local")) +
+	                        "}");
+	CheckStatus(response, 200);
+	CHECK(Contains(response->body, "\"ok\":true"));
+	CHECK(Contains(response->body, "\"params_in_text\":[],\"errors\":[],\"warnings\":[]}"));
 	response = api.Post("/v1/queries/validate",
 	                    "{\"text\":" + JsonString(Query("l", 1, "", "SELECT * FROM read_csv('x.csv')", "local")) + "}");
 	CheckStatus(response, 200);

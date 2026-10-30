@@ -36,7 +36,7 @@ struct LocalSqlVerdict {
 	std::string rule;
 	//! What broke it: a table, a function, a parameter.
 	std::string fragment;
-	//! Russian, for the author: rule, fragment and what to do.
+	//! English, for the author: rule, fragment and what to do.
 	std::string message;
 	//! $name references, lower case, unique, in the order the walk met them;
 	//! on a violation, those met before it. Empty if the text does not parse.
@@ -44,5 +44,9 @@ struct LocalSqlVerdict {
 };
 
 LocalSqlVerdict ValidateLocalSql(const std::string &sql, const LocalSqlScope &scope);
+
+//! The parameters a Local query passes on to its @depends as $name, lower
+//! case: used, though not in its SQL, so not W_PARAM_UNUSED.
+std::vector<std::string> ParamsPassedOn(const QueryHeader &header);
 
 } // namespace ofexcel

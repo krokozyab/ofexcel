@@ -7,6 +7,9 @@
 
 #include "ofexcel/contract_types.hpp"
 #include "ofexcel/hashing.hpp"
+#include "ofexcel/query_file.hpp"
+
+#include <map>
 
 #include <string>
 #include <vector>
@@ -46,5 +49,20 @@ struct ParamResult {
 //! or "" — takes `default_value`, or is E_PARAM_MISSING when that is null.
 //! For list<T>, [] is a value, not an empty input.
 ParamResult NormalizeParam(const ParamType &type, const CanonicalValue *default_value, const ParamInput &input);
+
+struct ParamsResult {
+	bool ok = false;
+	//! Every declared parameter's canonical value, defaults applied: what
+	//! canonical_params is built from (§1.2).
+	std::map<std::string, CanonicalValue> values;
+	//! !ok: E_PARAM_UNKNOWN for a name `params` does not declare, else
+	//! NormalizeParam's code; the message names the parameter.
+	std::string code;
+	std::string message;
+};
+
+//! NormalizeParam for every parameter in `params`, with `inputs` keyed by name
+//! and matched without regard to case.
+ParamsResult NormalizeParams(const std::vector<QueryParam> &params, const std::map<std::string, ParamInput> &inputs);
 
 } // namespace ofexcel

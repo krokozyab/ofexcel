@@ -357,4 +357,23 @@ LocalSqlVerdict ValidateLocalSql(const std::string &sql, const LocalSqlScope &sc
 	return verdict;
 }
 
+std::vector<std::string> ParamsPassedOn(const QueryHeader &header) {
+	std::vector<std::string> names;
+	for (const auto &dependency : header.depends) {
+		for (const auto &argument : dependency.arguments) {
+			if (argument.kind != DependencyArgument::Kind::PARAM) {
+				continue;
+			}
+			auto name = argument.value;
+			for (auto &c : name) {
+				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			}
+			if (std::find(names.begin(), names.end(), name) == names.end()) {
+				names.push_back(name);
+			}
+		}
+	}
+	return names;
+}
+
 } // namespace ofexcel

@@ -245,8 +245,11 @@ void ValidateRoute(const httplib::Request &request, httplib::Response &response,
 	}
 	auto warnings = body.SetArray("warnings");
 	if (parsed.Ok()) {
+		// A Local query's parameter passed on to a dependency is used too.
+		const auto passed_on = ParamsPassedOn(header);
 		for (const auto &param : header.params) {
-			if (std::find(used.begin(), used.end(), param.name) == used.end()) {
+			if (std::find(used.begin(), used.end(), param.name) == used.end() &&
+			    std::find(passed_on.begin(), passed_on.end(), param.name) == passed_on.end()) {
 				JsonObject warning;
 				warning.Set("code", WARNING_PARAM_UNUSED)
 				    .Set("message", "parameter " + param.name + " is declared but not used in the query text");

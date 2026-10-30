@@ -481,28 +481,12 @@ RenderResult RenderOracle(const std::string &body, const std::vector<QueryParam>
 
 	// Then the values: every declared parameter, used or not, because all of
 	// them make up canonical_params.
-	// Names match without regard to case, as in the text.
-	std::map<std::string, const ParamInput *> by_name;
-	for (const auto &input : inputs) {
-		const auto name = Lower(input.first);
-		if (!Find(params, name)) {
-			return Refused(CODE_UNKNOWN, "parameter " + input.first + " is not declared in @param");
-		}
-		if (!by_name.emplace(name, &input.second).second) {
-			return Refused(CODE_UNKNOWN, "parameter " + name + " is passed twice");
-		}
+	auto normalized = NormalizeParams(params, inputs);
+	if (!normalized.ok) {
+		return Refused(normalized.code, normalized.message);
 	}
 	RenderResult result;
-	const auto missing = ParamInput::Missing();
-	for (const auto &param : params) {
-		const auto input = by_name.find(param.name);
-		const auto normalized = NormalizeParam(param.type, param.has_default ? &param.default_value : nullptr,
-		                                       input == by_name.end() ? missing : *input->second);
-		if (!normalized.ok) {
-			return Refused(normalized.code, "parameter " + param.name + ": " + normalized.message);
-		}
-		result.values[param.name] = normalized.value;
-	}
+	result.values = std::move(normalized.values);
 
 	// The literals, spliced in where the references were taken out.
 	std::string rendered;

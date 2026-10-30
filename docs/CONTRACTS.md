@@ -234,6 +234,8 @@ word       = [A-Za-z0-9_]+ ;
 
 `@column` в Local-запросе переопределяет тип так же, как в п. 1 §3.3. Реализация: `src/run/local_types.cpp` — единственная часть договора о типах, которая знает о DuckDB.
 
+Хранится Local-результат так же, как Oracle-результат: каждая колонка — в хранении своего типа договора по §3.2 (`DECISIONS.md` Р9). Колонка, объявленная `@column`, проверяется по таблице «тип вмещает значение» §3.3 на тексте значения (`TIMESTAMPTZ` — в UTC со смещением `+00:00`). `''` остаётся `''` и вмещается только в `string` и `text`; в колонку другого объявленного типа — `E_TYPE_DECLARED_MISMATCH`.
+
 **JSON (§3.2)** строится функцией `EncodeJsonValue` (`src/catalog/result_types.cpp`) из текста хранимого значения: она возвращает типизированную ячейку, которую маршрут добавляет через `JsonArrayRef`, а не готовый JSON. `timestamp` и `timestamptz` — с дробью до микросекунд без хвостовых нулей; `decimal` — строкой в канонической форме.
 
 ### 3.5 Векторы типов
@@ -409,7 +411,23 @@ Ofquack на запрос без строк бросает `IOException` с те
 - Перед выполнением для каждой `@depends` находится экземпляр dataset'а (§6.3); если его нет или статус не `ready` — `E_DEPENDENCY_MISSING` (в `details` — список недостающих, для Smart Refresh).
 - На соединении создаются временные представления: `CREATE TEMP VIEW <query_id> AS SELECT * FROM ds."<таблица экземпляра>"`, для импортов — `CREATE TEMP VIEW <name> AS SELECT * FROM xl_import."<name>"`. После выполнения они удаляются. Разрешение коротких имён во временные представления — **[Ф0]**.
 - Тело проходит валидацию (§7), затем выполняется как подготовленный запрос с именованными параметрами `$имя`. Значения — по типам §3.1 (`list<T>` → `LIST`).
-- Результат читается потоково и пишется через `Appender` в таблицу экземпляра с типами DuckDB результата; тип договора — по §3.4.
+- Результат читается потоково через `Appender` в таблицу-заготовку `ds."stage__<run_id>"`, затем переносится в таблицу экземпляра с хранением по §3.2 (§3.4, `DECISIONS.md` Р9).
+
+**Уточнения реализации** (`src/run/local_run.cpp`):
+- **Зависимость-запрос** ищется по §10.2 (книга `workbook_id` запуска → проекты → примеры). Её параметры — аргументы `@depends`: `$имя` берёт каноническое значение параметра родителя, литерал — своё значение; по умолчанию — из её `@param`. Подключение Oracle-зависимости — `connection` запуска, иначе её `@connection`, иначе 422 `E_BAD_REQUEST`. Ключ экземпляра — по §1.3.
+- **Что запускается** решает `deps` (§8.3) при старте родителя: `missing` — зависимости без `ready`-экземпляра, `all` — все, `none` — ни одна. Зависимости запускаются с тем же `deps`, той же книгой и `parent_run_id` родителя; повторный старт идущего экземпляра присоединяется к идущему запуску (§6.4). Родитель ждёт всех, затем выполняет свой SQL.
+- **`E_DEPENDENCY_MISSING`** (409, до запуска): при `none` — запрос без `ready`-экземпляра; при любом `deps` — незарегистрированный запрос и отсутствующий импорт (их нельзя получить запуском). `details`:
+  ```ts
+  { missing: Array<{ kind: "query" | "import"; name: string;
+                     query?: QueryRef; connection?: string; params?: Record<string, ParamValue>; instance_key?: string }> }
+  ```
+  Поля `query`…`instance_key` — у зарегистрированного запроса. Он же записывается в `meta.missing` книги (`requests` растёт с каждым отказом), если запуск передал `workbook_id`; без книги запись не делается. Успешный запуск экземпляра удаляет его записи из `meta.missing` (§8.3 `/v1/missing`).
+- **`E_DEPENDENCY_FAILED`** (в `Run.error`): зависимость не стартовала (её отказ — в сообщении), завершилась ошибкой или отменой. Цикл зависимостей (`a → b → a`) обнаруживается, когда стартует зависимость, и даёт то же `E_DEPENDENCY_FAILED` у родителя с путём цикла.
+- **Отмена и тайм-аут** родителя, ждущего зависимостей, отменяют зависимости, которые он сам запустил (не присоединённые).
+- **Параметры** связываются типами: `integer` — `BIGINT` (больше 18 цифр — `HUGEINT`), `number` — `DOUBLE`, `decimal(p,s)` — `DECIMAL(p,s)`, `date`, `timestamp`, `boolean` — одноимённые, `string`, `id`, `enum` — `VARCHAR`, `list<T>` — `LIST` типа элемента.
+- **Колонки** с одинаковыми без учёта регистра именами — `E_SQL_COMPILE` (у таблицы экземпляра не может быть двух таких колонок). Тип не из §3.4 хранится строкой и даёт предупреждение `W_TYPE_WIDENED`.
+- `W_PARAM_UNUSED` — для параметра, которого нет ни в SQL, ни в аргументах `@depends` (так же в `POST /v1/queries/validate`).
+- Ошибки выполнения — по §14.1 для Local; `@max_rows`, отмена и тайм-аут — как у Oracle-запуска (§5.4).
 
 ### 5.4 Пределы
 - Лимит строк: `@max_rows`, иначе 1 000 000. Для Preview — 200.
@@ -557,9 +575,9 @@ INSERT INTO meta.state VALUES ('data_version', '0'), ('catalog_version', '');
 ### 6.3 Выбор экземпляра
 Для запроса `Q` с определением `H`, подключением `C` и параметрами `P`: `instance_key` по §1.3. Если строки в `meta.dataset_instances` нет — создаётся со `status = 'empty'`.
 
-Запуск создаёт строку экземпляра (или обновляет её `last_access_at`) и строку `meta.runs` со `status = 'running'` в одной транзакции, до чтения. Строк нет, если запрос отклонён раньше: не разбирается, local (`E_UNSUPPORTED` до задачи C5), нет подключения (`E_BAD_REQUEST`) или секрета с этим именем (`E_NOT_FOUND`), ошибка подстановки (`E_PARAM_*`, `E_SQL_*`).
-- `environment` — из `meta.connections`; подключение только из `init.sql` без метки — `NULL`.
-- `user_name` — `subject` из `fusion_scanner_sso_status()`; неизвестен — `NULL`.
+Запуск создаёт строку экземпляра (или обновляет её `last_access_at`) и строку `meta.runs` со `status = 'running'` в одной транзакции, до чтения. Строк нет, если запрос отклонён раньше: не разбирается, не доверенный (`E_NOT_TRUSTED`), ошибка значения параметра (`E_PARAM_*`); для Oracle — нет подключения (`E_BAD_REQUEST`) или секрета с этим именем (`E_NOT_FOUND`), ошибка подстановки (`E_SQL_*`); для Local — нарушение §7 (`E_VALIDATION`, `E_SQL_COMPILE`), нет подключения для Oracle-зависимости (`E_BAD_REQUEST`), недостающая зависимость (`E_DEPENDENCY_MISSING`, §5.3).
+- `environment` — из `meta.connections`; подключение только из `init.sql` без метки — `NULL`. У Local-запуска — `NULL`.
+- `user_name` — `subject` из `fusion_scanner_sso_status()`; неизвестен — `NULL`. У Local-запуска — `NULL`.
 - `warnings_json` — JSON-массив `Warning` (§8.2): `W_PARAM_UNUSED` (§4) с начала запуска, `W_TYPE_WIDENED` и `W_NUMBER_PRECISION` (§3.3) — к концу.
 
 ### 6.4 Подмена версии (успешный запуск)
@@ -726,7 +744,7 @@ type Run = {
   environment?: Environment; params: Record<string, ParamValue>;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   started_at: string; finished_at?: string; rows_fetched: number; truncated: boolean;
-  parent_run_id?: string; depends_on: string[];   // run_id зависимостей этого запуска
+  parent_run_id?: string; depends_on: string[];   // run_id запусков, начатых для этого (их parent_run_id — этот запуск)
   warnings: Warning[]; error?: { code: string; message: string };
 };
 type RowsPage = {
@@ -788,7 +806,7 @@ type RowsPage = {
 - Сначала заголовок (§2): его ошибки — с `line` (0 не пишется). Если он разобран, то тело: для `oracle` — проверки текста токенизатора (§4.1, без значений), для `local` — валидатор (§7); их ошибки — без `line`, номер строки тела — в `message`. `ok` — нет ни одной ошибки.
 - `header` — только если заголовок разобран. `source` и `trusted` — как у зарегистрированного определения с этим хешем (первого в порядке `GET /v1/queries`); незарегистрированный текст — `{ kind: "workbook", ref: "" }`, `trusted: false`.
 - `params_in_text` — `:имя` (oracle) или `$имя` (local) в нижнем регистре, по одному разу, в порядке появления; при ошибке тела — найденные до неё.
-- `warnings` — `{ code: "W_PARAM_UNUSED" }` для каждого объявленного, но не использованного параметра.
+- `warnings` — `{ code: "W_PARAM_UNUSED" }` для каждого объявленного, но не использованного параметра. Параметр local-запроса, переданный в аргумент `@depends` (`$имя`), использован.
 
 **`POST /v1/preview`**
 ```ts
@@ -811,12 +829,12 @@ type RowsPage = {
 - Недоверенное определение — 403 `E_NOT_TRUSTED`; ни запуск, ни экземпляр не создаются. Остальные отказы до запуска — §6.3.
 - Повторный запуск идущего экземпляра — 202 с идущим `Run` (§6.4).
 - `params` — объект; числа JSON читаются своим текстом (§3.1). `deps` — `missing`, `all` или `none`, `force` — boolean; иначе 422 `E_BAD_REQUEST`. Значение-объект у параметра — 422 `E_PARAM_TYPE`.
-- Для local: зависимости запускаются раньше (`deps = all` — все; `missing` — только без `ready`-экземпляра; `none` — не запускаются, а отсутствие даёт `E_DEPENDENCY_MISSING`). Запуски зависимостей получают `parent_run_id`. Ошибка любой зависимости — родительский запуск `failed` с `E_DEPENDENCY_FAILED`.
+- Для local: зависимости запускаются раньше (`deps = all` — все; `missing` — только без `ready`-экземпляра; `none` — не запускаются, а отсутствие даёт `E_DEPENDENCY_MISSING`). Запуски зависимостей получают `parent_run_id`. Ошибка любой зависимости — родительский запуск `failed` с `E_DEPENDENCY_FAILED`. Подробности — §5.3. `connection` у Local-запроса — подключение его Oracle-зависимостей; сам запуск идёт с `connection = "local"`.
 - `connection` для oracle: из тела, иначе из `@connection`, иначе 422 `E_BAD_REQUEST`.
 
 **`GET /v1/runs/{run_id}`** → `Run`. Нет запуска — 404 `E_NOT_FOUND` (так же у `/cancel` и `/rows`).
 
-`Run` строится из `meta.runs`: `params` — `canonical_params` (§1.2: строки, для `list<T>` — массивы строк); время — `YYYY-MM-DDTHH:MM:SSZ`; `rows_fetched` идущего запуска — сколько строк прочитано на этот момент; `depends_on` у Oracle-запуска пустой; `error` — `{code, message}`, если запуск завершился ошибкой или отменой.
+`Run` строится из `meta.runs`: `params` — `canonical_params` (§1.2: строки, для `list<T>` — массивы строк); время — `YYYY-MM-DDTHH:MM:SSZ`; `rows_fetched` идущего запуска — сколько строк прочитано на этот момент; `depends_on` — запуски с этим `parent_run_id`, старые первыми (у Oracle-запуска пуст; запуск зависимости, к которому Local-запуск присоединился, в нём не числится — он начат другим); `error` — `{code, message}`, если запуск завершился ошибкой или отменой.
 
 **`POST /v1/runs/{run_id}/cancel`** → `Run`. Для завершённого запуска — без изменений. Отмена ДОЛЖНА переводить запуск в `cancelled` не позже чем через 5 с **[Ф0]**. Маршрут ждёт окончания запуска до 5 с и отвечает уже его итогом.
 
@@ -1038,7 +1056,7 @@ type Binding = {
 | `ofexcel_queries()` | `TABLE(query_id, definition_hash, version, engine, source_kind, source_ref, trusted BOOLEAN)` | Каталог запросов |
 | `ofexcel_render_oracle(sql VARCHAR, params := STRUCT/MAP)` | `TABLE(rendered VARCHAR, warnings VARCHAR[])` | Подстановка по §4 без выполнения; `@param` выводятся из типов значений, если запроса нет — для отладки |
 | `ofexcel_validate(sql VARCHAR, depends := VARCHAR[], params := VARCHAR[])` | `TABLE(ok BOOLEAN, rule VARCHAR, message VARCHAR)` | Валидация по §7. Элемент `depends` — `query_id`, `query_id(…)` (аргументы не читаются) или `xl_import.имя`. Одна строка: при `ok` — `rule` и `message` NULL; при отказе `message` начинается с кода (`E_VALIDATION: V3: …`, `E_SQL_COMPILE: …`), `rule` — `V1`…`V8` или NULL для `E_SQL_COMPILE` |
-| `ofexcel_run(query_id VARCHAR, params := STRUCT, connection := VARCHAR)` | `TABLE(run_id, status, rows_fetched, truncated, error_code, error_message)` | Запуск и ожидание завершения. Запрос выбирается как в §10.2 без книги: проекты, затем примеры. `params` — структура `{имя: значение}`, значения — как JSON от панели (§3.1): числа своим текстом, даты строками, списки массивами. Отказ до запуска (§6.3) — ошибка с кодом в начале сообщения; ошибка самого запуска — в строке результата |
+| `ofexcel_run(query_id VARCHAR, params := STRUCT, connection := VARCHAR)` | `TABLE(run_id, status, rows_fetched, truncated, error_code, error_message)` | Запуск и ожидание завершения. Запрос выбирается как в §10.2 без книги: проекты, затем примеры. `params` — структура `{имя: значение}`, значения — как JSON от панели (§3.1): числа своим текстом, даты строками, списки массивами. Local-запрос запускается с `deps = missing` (§5.3). Отказ до запуска (§6.3) — ошибка с кодом в начале сообщения; ошибка самого запуска — в строке результата |
 | `ofexcel_runs()` | `TABLE` колонок `meta.runs` | История, новые первыми |
 | `ofexcel_datasets()` | `TABLE` колонок `meta.dataset_instances` | Экземпляры |
 | `ofexcel_reload()` | `TABLE(source VARCHAR, query_id VARCHAR, ok BOOLEAN, message VARCHAR)` | Перечитать проекты. Строка на каждый файл `*.sql` (расширение без учёта регистра) в порядке имён проектов и файлов: `source` — `<проект>/queries/<файл>`; `query_id` — `@id`, если он годится по §1, иначе NULL; `message` — ошибки через `; ` или NULL. Определения проектов становятся ровно теми, что разобрались |

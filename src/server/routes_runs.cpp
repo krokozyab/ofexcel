@@ -38,10 +38,12 @@ constexpr int64_t MAX_RUNS_LISTED = 1000;
 //! so that its answer already says so.
 constexpr auto CANCEL_WAIT = std::chrono::seconds(5);
 
+//! depends_on: the runs started for this one, oldest first (§8.2 Run).
 const char *const RUN_COLUMNS =
     "SELECT run_id, instance_key, query_id, definition_hash, connection_name, environment, params_json, "
     "parent_run_id, status, started_at, finished_at, rows_fetched, truncated, warnings_json, error_code, "
-    "error_message, result_table FROM meta.runs ";
+    "error_message, result_table, (SELECT string_agg(c.run_id, ',' ORDER BY c.started_at, c.run_id) "
+    "FROM meta.runs AS c WHERE c.parent_run_id = r.run_id) FROM meta.runs AS r ";
 
 enum RunColumn {
 	RUN_ID,
@@ -60,7 +62,8 @@ enum RunColumn {
 	WARNINGS_JSON,
 	ERROR_CODE,
 	ERROR_MESSAGE,
-	RESULT_TABLE
+	RESULT_TABLE,
+	DEPENDS_ON
 };
 
 std::string UrlParam(const httplib::Request &request, const char *name) {
@@ -158,8 +161,15 @@ JsonObject RunJson(const Row &row) {
 	if (!row[PARENT_RUN_ID].IsNull()) {
 		run.Set("parent_run_id", row[PARENT_RUN_ID].ToString());
 	}
-	// Dependencies are Local runs' (TASKS.md C5); an Oracle run has none.
-	run.SetArray("depends_on");
+	auto depends_on = run.SetArray("depends_on");
+	if (!row[DEPENDS_ON].IsNull()) {
+		const auto ids = row[DEPENDS_ON].ToString();
+		for (size_t from = 0; from <= ids.size();) {
+			const auto comma = std::min(ids.find(',', from), ids.size());
+			depends_on.AddString(ids.substr(from, comma - from));
+			from = comma + 1;
+		}
+	}
 	auto warnings = run.SetArray("warnings");
 	const auto stored = JsonDocument::Parse(row[WARNINGS_JSON].ToString());
 	for (size_t i = 0; i < stored.Root().Size(); i++) {
@@ -174,7 +184,7 @@ JsonObject RunJson(const Row &row) {
 }
 
 Row FindRun(duckdb::Connection &connection, const std::string &run_id) {
-	auto rows = QueryRows(connection, std::string(RUN_COLUMNS) + "WHERE run_id = $1", {duckdb::Value(run_id)});
+	auto rows = QueryRows(connection, std::string(RUN_COLUMNS) + "WHERE r.run_id = $1", {duckdb::Value(run_id)});
 	if (rows.empty()) {
 		throw ApiError("E_NOT_FOUND", 404, "No run " + run_id);
 	}
@@ -369,7 +379,11 @@ void StartRunRoute(const httplib::Request &request, httplib::Response &response,
 	run.connection = OptionalString(body, "connection");
 	run.workbook_id = OptionalString(body, "workbook_id");
 	const auto deps = OptionalString(body, "deps");
-	if (!deps.empty() && deps != "missing" && deps != "all" && deps != "none") {
+	if (deps == "all") {
+		run.deps = DepsMode::ALL;
+	} else if (deps == "none") {
+		run.deps = DepsMode::NONE;
+	} else if (!deps.empty() && deps != "missing") {
 		throw ApiError("E_BAD_REQUEST", 422, "deps must be missing, all or none, not \"" + deps + "\"");
 	}
 	const auto force = body.Get("force");
@@ -425,8 +439,8 @@ void ListRunsRoute(const httplib::Request &request, httplib::Response &response,
 	const auto limit = IntegerParam(request, "limit", DEFAULT_RUNS_LISTED, 1, MAX_RUNS_LISTED);
 	const auto rows = QueryRows(connection,
 	                            std::string(RUN_COLUMNS) +
-	                                "WHERE ($1 = '' OR query_id = lower($1)) AND ($2 = '' OR workbook_id = $2) "
-	                                "ORDER BY started_at DESC, run_id LIMIT $3",
+	                                "WHERE ($1 = '' OR r.query_id = lower($1)) AND ($2 = '' OR r.workbook_id = $2) "
+	                                "ORDER BY r.started_at DESC, r.run_id LIMIT $3",
 	                            {duckdb::Value(UrlParam(request, "query")),
 	                             duckdb::Value(UrlParam(request, "workbook")), duckdb::Value::BIGINT(limit)});
 	JsonObject body;

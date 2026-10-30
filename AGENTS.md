@@ -59,7 +59,8 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_connections_test  # connections, secrets after restart, sign-in
 ./build/release/extension/ofexcel/ofexcel_queries_test      # query registry: projects, workbooks, resolution
 ./build/release/extension/ofexcel/ofexcel_runs_test         # Oracle runs through the fake transport: types, limits, cancel
-./build/release/extension/ofexcel/ofexcel_runs_api_test     # trust, /v1/runs*, /v1/datasets* over HTTPS
+./build/release/extension/ofexcel/ofexcel_runs_api_test     # trust, /v1/runs*, /v1/datasets*, deps over HTTPS
+./build/release/extension/ofexcel/ofexcel_local_runs_test   # Local runs: dependencies, deps modes, meta.missing, types
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -102,7 +103,10 @@ src/catalog/oracle_render.cpp  Oracle SQL tokenizer and parameter literals (§4)
 src/run/local_types.cpp     DuckDB type → contract type for Local results (§3.4) — knows DuckDB
 src/run/local_validator.cpp Local SQL validation V1–V9 over duckdb::Parser (§7)
 src/run/fusion_errors.cpp   ofquack's errors → E_FUSION_* and the rest of §14.1
-src/run/run_engine.cpp      Oracle runs: ofquack → stage → typed instance table, cancel, timeout (§5, §6.4)
+src/run/run_engine.cpp      the run engine: Start checks and plans a run, one per instance, cancel (§6.3)
+src/run/run_work.cpp        what every run shares: watchdog, stage table, new version and swap (§5.4, §6.4)
+src/run/oracle_run.cpp      Oracle runs: ofquack → stage → types over the whole result (§5.1, §5.2, §3.3)
+src/run/local_run.cpp       Local runs: dependencies, temporary views, $name bound, §3.2 storage (§5.3)
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/meta/connections.cpp    meta.connections and the oracle_fusion secrets beside them (§8.3, §13)

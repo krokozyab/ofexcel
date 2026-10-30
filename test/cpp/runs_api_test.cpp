@@ -1,4 +1,5 @@
-// Trust (TASKS.md C2) and runs and datasets over HTTPS (TASKS.md C4), against a
+// Trust (TASKS.md C2), runs and datasets (TASKS.md C4) and Local runs with
+// their dependencies (TASKS.md C5) over HTTPS, against a
 // live server started by serve's own start sequence, with ofquack's transport
 // replaced by a scripted fake: no Fusion, no network beyond 127.0.0.1.
 
@@ -553,6 +554,62 @@ void TestDatasets(Daemon &daemon) {
 	CheckStatus(api.Get("/v1/runs/" + run_id + "/rows"), 410, "E_GONE");
 }
 
+// --- C5: Local runs --------------------------------------------------------------
+
+const std::string INVOICE_TOTAL = "-- @id: invoice_total\n-- @engine: local\n-- @version: 1\n"
+                                  "-- @param bu: integer = 1\n-- @depends: invoices(bu := $bu, period := '2026-07')\n"
+                                  "SELECT count(*) AS invoices, sum(amt) AS total FROM invoices\n";
+
+//! deps over HTTP: none refuses with the missing dependency in details,
+//! missing runs it first and lists it in depends_on, all runs it again.
+void TestLocalRuns(Daemon &daemon) {
+	Api api(daemon.port);
+	CheckStatus(api.Put("/v1/queries/invoice_total", "{\"project\":\"ap\",\"text\":" + JsonString(INVOICE_TOTAL) + "}"),
+	            200);
+
+	const auto runs_before = daemon.Value("SELECT count(*) FROM meta.runs");
+	const auto refused = api.Post("/v1/runs", RunBody(INVOICE_TOTAL, ",\"params\":{\"bu\":7},\"deps\":\"none\""));
+	CheckStatus(refused, 409, "E_DEPENDENCY_MISSING");
+	CHECK(Contains(refused->body, "\"details\":{\"missing\":[{\"kind\":\"query\",\"name\":\"invoices\",\"query\":"));
+	CHECK(Contains(refused->body, "\"params\":{\"bu\":\"7\",\"period\":\"2026-07\"}"));
+	CHECK(daemon.Value("SELECT count(*) FROM meta.runs") == runs_before);
+
+	script.Answer(Page(InvoiceRows()));
+	const auto started = api.Post("/v1/runs", RunBody(INVOICE_TOTAL, ",\"params\":{\"bu\":7}"));
+	CheckStatus(started, 202);
+	CHECK(Field(started->body, "connection") == "local");
+	CHECK(!Contains(started->body, "\"environment\""));
+	const auto run_id = Field(started->body, "run_id");
+	ofexcel::RunEngine::Get().Wait(run_id);
+	CHECK(Contains(script.FirstSql(), "bu = 7"));
+	CHECK(Contains(script.FirstSql(), "period = '2026-07'"));
+
+	const auto run = api.Get("/v1/runs/" + run_id);
+	CheckStatus(run, 200);
+	CHECK(Field(run->body, "status") == "succeeded");
+	const auto run_document = ofexcel::JsonDocument::Parse(run->body);
+	const auto depends_on = run_document.Root().Get("depends_on");
+	CHECK(depends_on.Size() == 1);
+	const auto child = api.Get("/v1/runs/" + depends_on.At(0).String());
+	CheckStatus(child, 200);
+	CHECK(Field(child->body, "parent_run_id") == run_id);
+	CHECK(Field(child->body, "query", "id") == "invoices");
+	CHECK(Field(child->body, "connection") == "fusion");
+
+	const auto rows = api.Get("/v1/runs/" + run_id + "/rows");
+	CheckStatus(rows, 200);
+	CHECK(rows->body == "{\"columns\":[{\"name\":\"invoices\",\"header\":\"invoices\",\"type\":\"integer\"},"
+	                    "{\"name\":\"total\",\"header\":\"total\",\"type\":\"decimal(38,2)\"}],"
+	                    "\"rows\":[[2,\"-0.66\"]],\"offset\":0,\"limit\":5000,\"total\":1,\"truncated\":false}");
+
+	script.Answer(Page(InvoiceRows()));
+	const auto again = RunAndWait(api, RunBody(INVOICE_TOTAL, ",\"params\":{\"bu\":7},\"deps\":\"all\""));
+	const auto again_document = ofexcel::JsonDocument::Parse(api.Get("/v1/runs/" + again)->body);
+	CHECK(again_document.Root().Get("depends_on").Size() == 1);
+	CHECK(daemon.Value("SELECT count(*) FROM meta.runs WHERE query_id = 'invoices' AND params_json = "
+	                   "'{\"bu\":\"7\",\"period\":\"2026-07\"}'") == "2");
+}
+
 } // namespace
 
 int main() {
@@ -580,6 +637,7 @@ int main() {
 		TestGone(daemon);
 		TestListRuns(daemon);
 		TestDatasets(daemon);
+		TestLocalRuns(daemon);
 	}
 	std::cout << "runs_api_test: all checks passed\n";
 	return 0;

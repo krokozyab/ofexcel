@@ -498,7 +498,8 @@ void TestRefusedRequests(Daemon &daemon) {
 	elsewhere.connection = "nowhere";
 	refused(elsewhere, "E_NOT_FOUND");
 	refused(Request("-- @id: unbound\n-- @engine: oracle\n-- @version: 1\nSELECT 1 FROM dual\n"), "E_BAD_REQUEST");
-	refused(Request("-- @id: here\n-- @engine: local\n-- @version: 1\nSELECT 1\n"), "E_UNSUPPORTED");
+	// Local SQL that reads what it does not declare (§7 V3).
+	refused(Request("-- @id: here\n-- @engine: local\n-- @version: 1\nSELECT * FROM gl_balances\n"), "E_VALIDATION");
 	CHECK(daemon.Value("SELECT count(*) FROM meta.runs") == runs);
 }
 

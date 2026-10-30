@@ -36,6 +36,9 @@ set(EXTENSION_SOURCES
         src/run/local_types.cpp
         src/run/local_validator.cpp
         src/run/fusion_errors.cpp
+        src/run/run_work.cpp
+        src/run/oracle_run.cpp
+        src/run/local_run.cpp
         src/run/run_engine.cpp
         src/meta/migrations.cpp
         src/meta/connections.cpp
@@ -237,6 +240,15 @@ if(OFEXCEL_BUILD_TESTS)
                              ${OFEXCEL_FUSION_SCANNER_SRC}/src)
   target_compile_features(ofexcel_runs_api_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_runs_api_test COMMAND ofexcel_runs_api_test)
+
+  # Local runs and their dependencies (TASKS.md C5): deps modes, meta.missing,
+  # a failing dependency, Local result types, with ofquack's transport scripted.
+  add_executable(ofexcel_local_runs_test test/cpp/local_runs_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_local_runs_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS})
+  target_include_directories(ofexcel_local_runs_test PRIVATE src src/include test/cpp
+                             ${OFEXCEL_LINKED_EXTENSION_INCLUDES} ${OFEXCEL_FUSION_SCANNER_SRC}/src)
+  target_compile_features(ofexcel_local_runs_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_local_runs_test COMMAND ofexcel_local_runs_test)
 
   # `ofexceld serve` as a process: what it prints, the files it leaves, a live
   # HTTPS request. A bash script, so not on Windows.
