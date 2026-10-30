@@ -277,6 +277,32 @@ bool AnyErrors(const std::vector<std::vector<QueryParseError>> &errors) {
 	return std::any_of(errors.begin(), errors.end(), [](const std::vector<QueryParseError> &e) { return !e.empty(); });
 }
 
+//! Adds `hash` to meta.trusted_definitions unless it is there already: the
+//! first origin stays.
+void GrantTrust(duckdb::Connection &connection, const std::string &hash, const std::string &query_id,
+                const char *origin, const std::string &workbook_id) {
+	QueryRows(connection,
+	          "INSERT INTO meta.trusted_definitions VALUES ($1, $2, $3, $4, $5) "
+	          "ON CONFLICT (definition_hash) DO NOTHING",
+	          {duckdb::Value(hash), duckdb::Value(query_id), duckdb::Value(origin),
+	           workbook_id.empty() ? duckdb::Value(duckdb::LogicalType::VARCHAR) : duckdb::Value(workbook_id),
+	           duckdb::Value::TIMESTAMP(duckdb::Timestamp::GetCurrentTimestamp())});
+}
+
+QueryDefinition DefinitionOf(duckdb::Connection &connection, const char *kind, const std::string &ref,
+                             const std::string &hash) {
+	const auto rows = QueryRows(connection,
+	                            std::string(DEFINITION_COLUMNS) +
+	                                "WHERE d.source_kind = $1 AND d.source_ref = $2 AND d.definition_hash = $3",
+	                            {duckdb::Value(kind), duckdb::Value(ref), duckdb::Value(hash)});
+	if (rows.empty()) {
+		throw std::runtime_error("query definition " + hash + " vanished after it was registered");
+	}
+	return ToDefinition(rows[0]);
+}
+
+} // namespace
+
 bool IsUuidV4(const std::string &text) {
 	static const char *const PATTERN = "xxxxxxxx-xxxx-4xxx-Yxxx-xxxxxxxxxxxx";
 	if (text.size() != 36) {
@@ -305,32 +331,6 @@ bool IsUuidV4(const std::string &text) {
 	}
 	return true;
 }
-
-//! Adds `hash` to meta.trusted_definitions unless it is there already: the
-//! first origin stays.
-void GrantTrust(duckdb::Connection &connection, const std::string &hash, const std::string &query_id,
-                const char *origin, const std::string &workbook_id) {
-	QueryRows(connection,
-	          "INSERT INTO meta.trusted_definitions VALUES ($1, $2, $3, $4, $5) "
-	          "ON CONFLICT (definition_hash) DO NOTHING",
-	          {duckdb::Value(hash), duckdb::Value(query_id), duckdb::Value(origin),
-	           workbook_id.empty() ? duckdb::Value(duckdb::LogicalType::VARCHAR) : duckdb::Value(workbook_id),
-	           duckdb::Value::TIMESTAMP(duckdb::Timestamp::GetCurrentTimestamp())});
-}
-
-QueryDefinition DefinitionOf(duckdb::Connection &connection, const char *kind, const std::string &ref,
-                             const std::string &hash) {
-	const auto rows = QueryRows(connection,
-	                            std::string(DEFINITION_COLUMNS) +
-	                                "WHERE d.source_kind = $1 AND d.source_ref = $2 AND d.definition_hash = $3",
-	                            {duckdb::Value(kind), duckdb::Value(ref), duckdb::Value(hash)});
-	if (rows.empty()) {
-		throw std::runtime_error("query definition " + hash + " vanished after it was registered");
-	}
-	return ToDefinition(rows[0]);
-}
-
-} // namespace
 
 const std::vector<QueryText> &BuiltinExamples() {
 	static const std::vector<QueryText> examples;

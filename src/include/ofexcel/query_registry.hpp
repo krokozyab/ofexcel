@@ -63,6 +63,9 @@ const std::vector<QueryText> &BuiltinExamples();
 //! header_json: the parsed header as canonical JSON (CONTRACTS.md §1).
 std::string HeaderJson(const QueryHeader &header);
 
+//! A workbook id (CONTRACTS.md §9.1): a UUID v4, lower case, with dashes.
+bool IsUuidV4(const std::string &text);
+
 //! A project name a directory can have on every platform: not empty, at most
 //! 100 bytes of UTF-8, no control characters or / \ : * ? " < > |, not
 //! starting with "." and not ending with "." or a space.

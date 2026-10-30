@@ -64,8 +64,10 @@ void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context);
 void RegisterConnectionRoutes(httplib::Server &server, const RouteContext &context);
 //! /v1/queries*, /v1/workbooks/{id}/queries, /v1/trust (src/server/routes_queries.cpp).
 void RegisterQueryRoutes(httplib::Server &server, const RouteContext &context);
-//! /v1/runs*, /v1/datasets* (src/server/routes_runs.cpp).
+//! /v1/runs*, /v1/datasets*, /v1/preview (src/server/routes_runs.cpp).
 void RegisterRunRoutes(httplib::Server &server, const RouteContext &context);
+//! /v1/imports* (src/server/routes_imports.cpp).
+void RegisterImportRoutes(httplib::Server &server, const RouteContext &context);
 //! Local profile only: GET /addin/*, with the session token in every HTML page.
 void RegisterAddinRoutes(httplib::Server &server, const RouteContext &context);
 //! Phase 0 only; registered when ServerOptions::probe_routes is set.

@@ -61,6 +61,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_runs_test         # Oracle runs through the fake transport: types, limits, cancel
 ./build/release/extension/ofexcel/ofexcel_runs_api_test     # trust, /v1/runs*, /v1/datasets*, deps, /v1/preview over HTTPS
 ./build/release/extension/ofexcel/ofexcel_local_runs_test   # Local runs: dependencies, deps modes, meta.missing, types
+./build/release/extension/ofexcel/ofexcel_imports_test      # /v1/imports*: batches, commit, replace, expiry
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -113,6 +114,7 @@ src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/meta/connections.cpp    meta.connections and the oracle_fusion secrets beside them (§8.3, §13)
 src/meta/query_registry.cpp meta.query_definitions: projects, workbooks, examples; resolution (§10.2)
 src/meta/datasets.cpp       dataset tables, storage types, meta.query_schemas, cleanup at start (§6)
+src/meta/imports.cpp        sheet imports: begin, batches into a stage table, commit as xl_import.<name> (§12)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only
 src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS keychain, Windows ROOT)
 src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB, no httplib
@@ -121,6 +123,7 @@ src/server/routes.hpp       what a route file needs
 src/server/routes_*.cpp     one file per route group; routes_addin.cpp serves /addin/* (local profile)
 src/server/routes_queries.cpp  /v1/queries*, /v1/workbooks/{id}/queries, /v1/trust
 src/server/routes_runs.cpp     /v1/runs*, /v1/datasets*, /v1/preview: start, follow, cancel, rows pages
+src/server/routes_imports.cpp  /v1/imports*: begin, rows, commit
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 test/sql/                   sqllogictests
