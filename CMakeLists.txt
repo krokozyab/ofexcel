@@ -35,13 +35,16 @@ set(EXTENSION_SOURCES
         src/catalog/oracle_render.cpp
         src/run/local_types.cpp
         src/run/local_validator.cpp
+        src/run/fusion_errors.cpp
         src/meta/migrations.cpp
+        src/meta/connections.cpp
         src/security/local_ca.cpp
         src/security/trust_store.cpp
         src/server/request_guard.cpp
         src/server/json_body.cpp
         src/server/http_server.cpp
         src/server/routes_health.cpp
+        src/server/routes_connections.cpp
         src/server/routes_addin.cpp
         src/server/routes_probe.cpp
 )
@@ -192,6 +195,16 @@ if(OFEXCEL_BUILD_TESTS)
   target_include_directories(ofexcel_daemon_test PRIVATE src src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
   target_compile_features(ofexcel_daemon_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_daemon_test COMMAND ofexcel_daemon_test)
+
+  # Connections and sign-in over HTTPS (TASKS.md A4): meta.connections, the
+  # secrets recreated by serve's start sequence, /test through ofquack's
+  # transport seam. No browser, no Fusion.
+  add_executable(ofexcel_connections_test test/cpp/connections_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_connections_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS} httplib::httplib)
+  target_include_directories(ofexcel_connections_test PRIVATE src src/include test/cpp
+                             ${OFEXCEL_LINKED_EXTENSION_INCLUDES} ${OFEXCEL_FUSION_SCANNER_SRC}/src)
+  target_compile_features(ofexcel_connections_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_connections_test COMMAND ofexcel_connections_test)
 
   # `ofexceld serve` as a process: what it prints, the files it leaves, a live
   # HTTPS request. A bash script, so not on Windows.

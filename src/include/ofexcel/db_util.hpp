@@ -20,4 +20,24 @@ void Execute(duckdb::Connection &connection, const std::string &sql);
 //! holds the whole result in memory.
 std::vector<Row> QueryRows(duckdb::Connection &connection, const std::string &sql);
 
+//! The same with `params` bound to $1, $2, … of a prepared statement. Values
+//! from a request go here, never into the SQL text.
+std::vector<Row> QueryRows(duckdb::Connection &connection, const std::string &sql,
+                           duckdb::vector<duckdb::Value> params);
+
+struct QueryOutcome {
+	std::vector<Row> rows;
+	//! HasError() when the statement failed, with the exception type intact:
+	//! CONTRACTS.md §14.1 maps errors by type, which a rethrown message loses.
+	duckdb::ErrorData error;
+
+	bool Ok() const {
+		return !error.HasError();
+	}
+};
+
+//! QueryRows with parameters that returns the error instead of throwing it.
+QueryOutcome TryQueryRows(duckdb::Connection &connection, const std::string &sql,
+                          duckdb::vector<duckdb::Value> params);
+
 } // namespace ofexcel

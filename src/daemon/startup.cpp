@@ -2,6 +2,7 @@
 
 #include "core_functions_extension.hpp"
 #include "fusion_scanner_extension.hpp"
+#include "ofexcel/connections.hpp"
 #include "ofexcel/db_util.hpp"
 #include "ofexcel/migrations.hpp"
 #include "ofexcel/paths.hpp"
@@ -110,6 +111,10 @@ duckdb::unique_ptr<duckdb::DuckDB> OpenDatabase(const std::string &path) {
 	config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
 	config.SetOptionByName("memory_limit", duckdb::Value(DEFAULT_MEMORY_LIMIT));
 	config.SetOptionByName("threads", duckdb::Value::BIGINT(DEFAULT_THREADS));
+	// Secrets stay in memory (SPEC.md §3.1): a persistent one is written in the
+	// clear. Without this the secret manager also reads ~/.duckdb/stored_secrets
+	// on every lookup by name, which enable_external_access = false refuses.
+	config.SetOptionByName("allow_persistent_secrets", duckdb::Value::BOOLEAN(false));
 	auto db = duckdb::make_uniq<duckdb::DuckDB>(path == ":memory:" ? nullptr : path.c_str(), &config);
 	db->LoadStaticExtension<duckdb::CoreFunctionsExtension>();
 	db->LoadStaticExtension<duckdb::FusionScannerExtension>();
@@ -169,6 +174,8 @@ PreparedDatabase PrepareDaemonDatabase(const StartupOptions &options) {
 			                                    duckdb::ErrorData(error).Message());
 		}
 	}
+	// After init.sql, so a secret it created under a connection's name wins.
+	RestoreConnectionSecrets(connection);
 	if (port >= 0) {
 		Execute(connection, "SET ofexcel_port = " + std::to_string(port));
 	}

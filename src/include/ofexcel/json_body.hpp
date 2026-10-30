@@ -64,6 +64,50 @@ private:
 	std::unique_ptr<Impl> impl;
 };
 
+enum class JsonKind { MISSING, NULL_VALUE, BOOLEAN, NUMBER, STRING, ARRAY, OBJECT };
+
+//! A value inside a JsonDocument. Valid only while that document is alive.
+//! Reading a member that is not there, or a member of something that is not
+//! an object, gives a MISSING value rather than throwing, so a route checks the
+//! kind once instead of guarding every step.
+class JsonValue {
+public:
+	JsonKind Kind() const;
+	bool Is(JsonKind kind) const {
+		return Kind() == kind;
+	}
+	//! The string, which may contain NUL; "" unless Kind() is STRING.
+	std::string String() const;
+	//! false unless Kind() is BOOLEAN.
+	bool Bool() const;
+	JsonValue Get(const std::string &key) const;
+
+private:
+	friend class JsonDocument;
+	explicit JsonValue(void *value) : value(value) {
+	}
+	void *value;
+};
+
+//! A request body, parsed and read-only.
+class JsonDocument {
+public:
+	//! Throws std::invalid_argument when `text` is not JSON or not valid UTF-8.
+	static JsonDocument Parse(const std::string &text);
+
+	~JsonDocument();
+	JsonDocument(JsonDocument &&other) noexcept;
+	JsonDocument &operator=(JsonDocument &&other) noexcept;
+	JsonDocument(const JsonDocument &) = delete;
+	JsonDocument &operator=(const JsonDocument &) = delete;
+
+	JsonValue Root() const;
+
+private:
+	JsonDocument() = default;
+	void *doc = nullptr;
+};
+
 //! {"error":{"code":…,"message":…}} -- CONTRACTS.md §8.1.
 std::string ErrorBody(const std::string &code, const std::string &message);
 

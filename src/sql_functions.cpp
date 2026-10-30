@@ -1,6 +1,8 @@
 #include "ofexcel/sql_functions.hpp"
 
 #include "duckdb/function/table_function.hpp"
+#include "ofexcel/api_error.hpp"
+#include "ofexcel/connections.hpp"
 #include "ofexcel/http_server.hpp"
 #include "ofexcel/local_validator.hpp"
 #include "ofexcel/paths.hpp"
@@ -287,6 +289,44 @@ duckdb::unique_ptr<GlobalTableFunctionState> ValidateInit(ClientContext &, Table
 	return std::move(state);
 }
 
+// --- ofexcel_set_environment -------------------------------------------------
+
+struct SetEnvironmentBindData : public duckdb::TableFunctionData {
+	std::string name;
+	std::string environment;
+};
+
+duckdb::unique_ptr<FunctionData> SetEnvironmentBind(ClientContext &, TableFunctionBindInput &input,
+                                                    duckdb::vector<LogicalType> &return_types,
+                                                    duckdb::vector<Identifier> &names) {
+	if (input.inputs.size() != 2 || input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
+		throw duckdb::InvalidInputException(
+		    "E_BAD_REQUEST: ofexcel_set_environment(name, environment): имя и окружение не могут быть NULL");
+	}
+	auto bind_data = duckdb::make_uniq<SetEnvironmentBindData>();
+	bind_data->name = input.inputs[0].ToString();
+	bind_data->environment = input.inputs[1].ToString();
+	names = {"name", "environment"};
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR};
+	return std::move(bind_data);
+}
+
+//! Writes meta.connections on a connection of its own: the calling one is busy
+//! running this very query.
+duckdb::unique_ptr<GlobalTableFunctionState> SetEnvironmentInit(ClientContext &context, TableFunctionInitInput &input) {
+	const auto &bind_data = input.bind_data->Cast<SetEnvironmentBindData>();
+	duckdb::Connection connection(*context.db);
+	FusionConnection labelled;
+	try {
+		labelled = SetConnectionEnvironment(connection, bind_data.name, bind_data.environment);
+	} catch (const ApiError &error) {
+		throw duckdb::InvalidInputException("%s: %s", error.code, error.what());
+	}
+	auto state = duckdb::make_uniq<RowsState>();
+	state->rows.push_back({Value(labelled.name), Value(labelled.environment)});
+	return std::move(state);
+}
+
 // --- ofexcel_version ---------------------------------------------------------
 
 void VersionFunction(DataChunk &, ExpressionState &, Vector &result) {
@@ -359,6 +399,9 @@ void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {
 	AddNamedParameter(validate, "depends", LogicalType::LIST(LogicalType::VARCHAR));
 	AddNamedParameter(validate, "params", LogicalType::LIST(LogicalType::VARCHAR));
 	loader.RegisterFunction(validate);
+
+	loader.RegisterFunction(TableFunction("ofexcel_set_environment", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+	                                      ScanRows, SetEnvironmentBind, SetEnvironmentInit));
 
 	loader.RegisterFunction(RowsFunction("ofexcel_stop", StopBind, StopInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_status", StatusBind, StatusInit));

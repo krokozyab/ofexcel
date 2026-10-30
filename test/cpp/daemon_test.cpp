@@ -120,6 +120,17 @@ void TestConfigurationIsLockedAfterStart() {
 	// External access is off: no reading files from SQL.
 	const auto read = Run(connection, "SELECT * FROM read_csv('" + prepared.db_path + "')");
 	CHECK(read.HasError());
+
+	// Secrets live in memory only (SPEC.md §3.1), and a lookup by name never
+	// reaches for ~/.duckdb, which external access being off would refuse.
+	CHECK(Setting(connection, "allow_persistent_secrets") == "false");
+	CHECK(Run(connection, "CREATE PERSISTENT SECRET kept (TYPE oracle_fusion, ENDPOINT 'https://fa.example.com', "
+	                      "REPORT_PATH '/x.xdo')")
+	          .HasError());
+	RunOk(connection, "CREATE SECRET held (TYPE oracle_fusion, PROVIDER browser, ENDPOINT 'https://fa.example.com', "
+	                  "REPORT_PATH '/x.xdo')");
+	CHECK(RunOk(connection, "SELECT host FROM fusion_scanner_sso_status(secret := 'held')").At(0, 0).ToString() ==
+	      "fa.example.com");
 }
 
 void TestInitSqlRunsBetweenMigrationsAndFlags() {

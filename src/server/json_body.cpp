@@ -132,6 +132,83 @@ std::string JsonObject::Serialize() const {
 	return serialized;
 }
 
+namespace {
+
+yyjson_val *ValueOf(void *value) {
+	return static_cast<yyjson_val *>(value);
+}
+
+} // namespace
+
+JsonKind JsonValue::Kind() const {
+	switch (yyjson_get_type(ValueOf(value))) {
+	case YYJSON_TYPE_NULL:
+		return JsonKind::NULL_VALUE;
+	case YYJSON_TYPE_BOOL:
+		return JsonKind::BOOLEAN;
+	case YYJSON_TYPE_NUM:
+		return JsonKind::NUMBER;
+	case YYJSON_TYPE_STR:
+		return JsonKind::STRING;
+	case YYJSON_TYPE_ARR:
+		return JsonKind::ARRAY;
+	case YYJSON_TYPE_OBJ:
+		return JsonKind::OBJECT;
+	default:
+		// yyjson reports a null pointer as YYJSON_TYPE_NONE.
+		return JsonKind::MISSING;
+	}
+}
+
+std::string JsonValue::String() const {
+	if (!yyjson_is_str(ValueOf(value))) {
+		return "";
+	}
+	return std::string(yyjson_get_str(ValueOf(value)), yyjson_get_len(ValueOf(value)));
+}
+
+bool JsonValue::Bool() const {
+	return yyjson_is_bool(ValueOf(value)) && yyjson_get_bool(ValueOf(value));
+}
+
+JsonValue JsonValue::Get(const std::string &key) const {
+	if (!yyjson_is_obj(ValueOf(value))) {
+		return JsonValue(nullptr);
+	}
+	return JsonValue(yyjson_obj_getn(ValueOf(value), key.data(), key.size()));
+}
+
+JsonDocument JsonDocument::Parse(const std::string &text) {
+	JsonDocument parsed;
+	// yyjson rejects invalid UTF-8 unless told otherwise (CONTRACTS.md §1).
+	parsed.doc = yyjson_read(text.data(), text.size(), YYJSON_READ_NOFLAG);
+	if (!parsed.doc) {
+		throw std::invalid_argument("not JSON");
+	}
+	return parsed;
+}
+
+JsonDocument::~JsonDocument() {
+	yyjson_doc_free(static_cast<yyjson_doc *>(doc));
+}
+
+JsonDocument::JsonDocument(JsonDocument &&other) noexcept : doc(other.doc) {
+	other.doc = nullptr;
+}
+
+JsonDocument &JsonDocument::operator=(JsonDocument &&other) noexcept {
+	if (this != &other) {
+		yyjson_doc_free(static_cast<yyjson_doc *>(doc));
+		doc = other.doc;
+		other.doc = nullptr;
+	}
+	return *this;
+}
+
+JsonValue JsonDocument::Root() const {
+	return JsonValue(yyjson_doc_get_root(static_cast<yyjson_doc *>(doc)));
+}
+
 std::string ErrorBody(const std::string &code, const std::string &message) {
 	JsonObject error;
 	error.Set("code", code).Set("message", message);

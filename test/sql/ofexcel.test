@@ -66,3 +66,19 @@ query T
 SELECT stopped FROM ofexcel_stop();
 ----
 false
+
+# ofexcel_set_environment checks its arguments before it touches meta.connections.
+statement error
+SELECT * FROM ofexcel_set_environment('fusion_test', 'STAGE');
+----
+E_BAD_REQUEST
+
+statement error
+SELECT * FROM ofexcel_set_environment('fusion_test', 'test');
+----
+E_BAD_REQUEST
+
+statement error
+SELECT * FROM ofexcel_set_environment(NULL, 'DEV');
+----
+E_BAD_REQUEST

@@ -1,5 +1,6 @@
 #include "ofexcel/http_server.hpp"
 
+#include "ofexcel/api_error.hpp"
 #include "ofexcel/json_body.hpp"
 #include "ofexcel/local_ca.hpp"
 #include "ofexcel/migrations.hpp"
@@ -104,6 +105,10 @@ void InstallFallbacks(httplib::Server &server) {
 		std::string message = "Внутренняя ошибка ofexceld";
 		try {
 			std::rethrow_exception(error);
+		} catch (const ApiError &api_error) {
+			// A route's own refusal, with its §14 code and status.
+			SendError(response, api_error.status, api_error.code, api_error.what());
+			return;
 		} catch (const std::exception &exception) {
 			message += ": " + duckdb::ErrorData(exception).Message();
 		} catch (...) {
@@ -140,6 +145,7 @@ std::unique_ptr<httplib::SSLServer> CreateTlsServer(const std::string &tls_dir) 
 
 void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterHealthRoutes(server, context);
+	RegisterConnectionRoutes(server, context);
 	if (context.options.guard.profile == Profile::LOCAL) {
 		RegisterAddinRoutes(server, context);
 	}

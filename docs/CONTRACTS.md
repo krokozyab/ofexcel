@@ -730,16 +730,19 @@ type RowsPage = {
                        signed_in: boolean; user?: string }>;
   active_runs: number; warnings: Warning[] }
 ```
+Подключения — строки `meta.connections` по имени; `host` — `host[:port]` из `endpoint`; `signed_in` и `user` — из `fusion_scanner_sso_status()` (токен не выдаётся никогда). `user` нет, если ofquack не знает субъекта.
 
-**`GET /v1/connections`** → `{ connections: Array<{ name; environment; endpoint; report_path }> }`
+**`GET /v1/connections`** → `{ connections: Array<{ name; environment; endpoint; report_path }> }` — строки `meta.connections` по имени, без учётных данных и токенов.
 
-**`POST /v1/connections`** `{ name; environment; endpoint; report_path }` → 201 с тем же объектом. Создаёт строку `meta.connections` и секрет `CREATE SECRET <name> (TYPE oracle_fusion, PROVIDER browser, ENDPOINT …, REPORT_PATH …)`. Имя занято — 409 `E_CONFLICT`. При старте демона секреты пересоздаются из `meta.connections`; подключения из `init.sql` имеют приоритет при совпадении имён.
+**`POST /v1/connections`** `{ name; environment; endpoint; report_path }` → 201 с тем же объектом после нормализации. Создаёт строку `meta.connections` и секрет `CREATE SECRET <name> (TYPE oracle_fusion, PROVIDER browser, ENDPOINT …, REPORT_PATH …, SSO_TIMEOUT_SECONDS 300)` в памяти (не `PERSISTENT`) — в одной транзакции: либо оба, либо ничего. Имя занято строкой или любым секретом (имена секретов общие для всех типов) — 409 `E_CONFLICT`. При старте демона секреты пересоздаются из `meta.connections`; подключения из `init.sql` имеют приоритет при совпадении имён.
+- Тело не объект JSON — 400 `E_BAD_REQUEST`; поле отсутствует или не строка — 422 `E_BAD_REQUEST`.
+- `name` — по §1; `environment` — ровно `DEV`, `TEST` или `PROD`; `endpoint` — `https://host[:port]` по правилам `ofexcel_hosted_origin` (§8.1.1: нижний регистр, без пути, завершающей `/` и `user@`), путь к сервису ofquack добавляет сам; `report_path` — абсолютный путь (`/…`), до 1024 байт, без управляющих символов. Иначе 422 `E_BAD_REQUEST`.
 
-**`POST /v1/connections/{name}/test`** → `{ ok: boolean; user?: string; error?: {code; message} }` — выполняет `SELECT 1 FROM dual` через §5.1.
+**`POST /v1/connections/{name}/test`** → `{ ok: boolean; user?: string; error?: {code; message} }` — выполняет `SELECT 1 FROM dual` через §5.1. Неудача — это ответ, а не ошибка: 200 с `ok: false` и кодом по §14.1 (нет входа — `E_FUSION_AUTH`). Нет секрета `oracle_fusion` с таким именем — 404 `E_NOT_FOUND`.
 
-**`POST /v1/auth/login`** `{ connection: string }` → 200 `{ user: string }`. Вызывает `fusion_scanner_sso_login()` для секрета подключения; ответ — после завершения входа или по тайм-ауту 300 с (`E_FUSION_AUTH`). Клиент ДОЛЖЕН ждать ответа не меньше 310 с.
+**`POST /v1/auth/login`** `{ connection: string }` → 200 `{ user: string }`. Вызывает `fusion_scanner_sso_login()` для секрета подключения; ответ — после завершения входа или по тайм-ауту 300 с. Любая неудача входа (тайм-аут, закрытое окно, не найден браузер) — 409 `E_FUSION_AUTH`. Клиент ДОЛЖЕН ждать ответа не меньше 310 с. Одновременно — не больше одного входа на подключение: второй запрос ждёт первый и получает его токен без нового окна (ofquack сверх того допускает один вход на процесс). Ещё действующий токен ofquack возвращает без браузера; `user` — `""`, если субъект неизвестен.
 
-**`POST /v1/auth/logout`** `{ connection }` → 204.
+**`POST /v1/auth/logout`** `{ connection }` → 204. Забывает токен ofquack для хоста подключения; профиль браузера не трогает. Неизвестное подключение у `login` и `logout` — 404 `E_NOT_FOUND`.
 
 **`GET /v1/dictionary/tables?connection=&q=&limit=50`** → `{ tables: Array<{ name: string; description?: string }> }` — через `oracle_fusion_tables()`, фильтр по подстроке имени без учёта регистра.
 
@@ -993,7 +996,7 @@ type Binding = {
 | `ofexcel_stop()` | `TABLE(stopped BOOLEAN)` | Остановить |
 | `ofexcel_serve()` | `TABLE(stopped BOOLEAN)` | Запустить и блокировать до SIGTERM/SIGINT |
 | `ofexcel_status()` | `TABLE(key VARCHAR, value VARCHAR)` | Состояние |
-| `ofexcel_set_environment(name VARCHAR, environment VARCHAR)` | `TABLE(name VARCHAR, environment VARCHAR)` | Метка окружения подключения |
+| `ofexcel_set_environment(name VARCHAR, environment VARCHAR)` | `TABLE(name VARCHAR, environment VARCHAR)` | Метка окружения подключения. Есть строка `meta.connections` — меняет `environment`. Есть только секрет `oracle_fusion` (созданный в `init.sql`) — добавляет строку с его `ENDPOINT` (схема и хост, без пути) и `REPORT_PATH`, так `init.sql` помечает свои подключения. Ни того ни другого — `E_NOT_FOUND`; окружение не `DEV`/`TEST`/`PROD` или NULL — `E_BAD_REQUEST` |
 | `ofexcel_queries()` | `TABLE(query_id, definition_hash, version, engine, source_kind, source_ref, trusted BOOLEAN)` | Каталог запросов |
 | `ofexcel_render_oracle(sql VARCHAR, params := STRUCT/MAP)` | `TABLE(rendered VARCHAR, warnings VARCHAR[])` | Подстановка по §4 без выполнения; `@param` выводятся из типов значений, если запроса нет — для отладки |
 | `ofexcel_validate(sql VARCHAR, depends := VARCHAR[], params := VARCHAR[])` | `TABLE(ok BOOLEAN, rule VARCHAR, message VARCHAR)` | Валидация по §7. Элемент `depends` — `query_id`, `query_id(…)` (аргументы не читаются) или `xl_import.имя`. Одна строка: при `ok` — `rule` и `message` NULL; при отказе `message` начинается с кода (`E_VALIDATION: V3: …`, `E_SQL_COMPILE: …`), `rule` — `V1`…`V8` или NULL для `E_SQL_COMPILE` |
@@ -1009,9 +1012,10 @@ type Binding = {
 Все настройки `ofexcel_*` регистрируются с областью `GLOBAL`: обычный `SET` в `init.sql` действует на все соединения, включая те, что открывают HTTP-запросы. В DuckDB 2.0 настройка расширения без явной области — сессионная.
 
 **Запуск `ofexceld serve`** ([`--db PATH`] [`--init FILE`] [`--port N`] [`--origin URL`]), по шагам:
-1. База — `--db` или `QEXCEL_HOME/data.duckdb`. Имя файла без расширения, совпадающее (без учёта регистра) со схемой `meta`, `ds` или `xl_import`, — отказ `E_BAD_REQUEST` до создания файла: DuckDB называет каталог по имени файла, и `meta.*` стало бы неоднозначным.
+1. База — `--db` или `QEXCEL_HOME/data.duckdb`. Имя файла без расширения, совпадающее (без учёта регистра) со схемой `meta`, `ds` или `xl_import`, — отказ `E_BAD_REQUEST` до создания файла: DuckDB называет каталог по имени файла, и `meta.*` стало бы неоднозначным. База открывается с `allow_persistent_secrets = false`: секреты только в памяти (`SPEC.md` §3.1), и поиск секрета по имени не обращается к `~/.duckdb/stored_secrets`, который `enable_external_access = false` запрещает читать.
 2. Миграции (§6.2).
 3. `init.sql` — `--init` или `QEXCEL_HOME/init.sql`, если файл есть. Названный в `--init`, но отсутствующий файл или ошибка в нём — отказ `E_BAD_REQUEST` с именем файла.
+3a. Секреты подключений из `meta.connections` (§8.3) — для строк, чьё имя ещё не занято секретом: секрет из `init.sql` с тем же именем остаётся. Строка, из которой секрет не создаётся, пишется в stderr и пропускается.
 4. Флаги `--port`, `--origin` — поверх значений из `init.sql`.
 5. `SET` из `SPEC.md` §8.4. `memory_limit = '2GB'` и `threads = 4` задаются при открытии базы, поэтому `init.sql` может их изменить; остальные — после флагов.
 6. `SET lock_configuration = true`; после этого `SET` отказывает в любом соединении.

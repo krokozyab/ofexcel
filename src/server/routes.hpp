@@ -42,6 +42,8 @@ constexpr const char *ADDIN_PREFIX = "/addin/";
 constexpr size_t ADDIN_PREFIX_LENGTH = 7;
 
 void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context);
+//! /v1/status, /v1/connections*, /v1/auth/* (src/server/routes_connections.cpp).
+void RegisterConnectionRoutes(httplib::Server &server, const RouteContext &context);
 //! Local profile only: GET /addin/*, with the session token in every HTML page.
 void RegisterAddinRoutes(httplib::Server &server, const RouteContext &context);
 //! Phase 0 only; registered when ServerOptions::probe_routes is set.

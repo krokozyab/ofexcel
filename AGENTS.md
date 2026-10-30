@@ -56,6 +56,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_local_profile_test  # local profile: /addin/*, session token
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
 ./build/release/extension/ofexcel/ofexcel_daemon_test       # serve's start sequence, in process
+./build/release/extension/ofexcel/ofexcel_connections_test  # connections, secrets after restart, sign-in
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -71,6 +72,12 @@ the one line `listening on <url>`; everything else is on stderr.
 ./build/release/extension/ofexcel/ofexceld install-cert
 ./build/release/extension/ofexcel/ofexceld serve --origin https://localhost:3000 --port 47321
 curl -s -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/health
+# A connection, then sign-in: a browser window opens; finish the sign-in there (up to 300 s).
+curl -s -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/connections \
+     -d '{"name":"fusion_test","environment":"TEST","endpoint":"https://<fusion-host>","report_path":"/Custom/Financials/RP_ARB.xdo"}'
+curl -s --max-time 320 -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/auth/login \
+     -d '{"connection":"fusion_test"}'
+curl -s -X POST -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/connections/fusion_test/test
 ./build/release/extension/ofexcel/ofexceld uninstall-cert   # takes the CA out of the trust store
 ```
 
@@ -91,15 +98,18 @@ src/catalog/result_types.cpp  Oracle column types, stored values, JSON cells (§
 src/catalog/oracle_render.cpp  Oracle SQL tokenizer and parameter literals (§4) — pure
 src/run/local_types.cpp     DuckDB type → contract type for Local results (§3.4) — knows DuckDB
 src/run/local_validator.cpp Local SQL validation V1–V9 over duckdb::Parser (§7)
+src/run/fusion_errors.cpp   ofquack's errors → E_FUSION_* and the rest of §14.1
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
+src/meta/connections.cpp    meta.connections and the oracle_fusion secrets beside them (§8.3, §13)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only
 src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS keychain, Windows ROOT)
 src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB, no httplib
 src/server/http_server.cpp  HTTPS server lifecycle, guard, CORS, error fallbacks
 src/server/routes.hpp       what a route file needs
 src/server/routes_*.cpp     one file per route group; routes_addin.cpp serves /addin/* (local profile)
-src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON
+src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
+src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 test/sql/                   sqllogictests
 test/cpp/                   C++ suites; test_support.hpp is shared
 test/http/                  scripts that run ofexceld as a process (POSIX only)
@@ -147,11 +157,17 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
 - Each request opens its own connection with `RouteContext::Connect()`. Never share a
   `duckdb::Connection` between requests or threads.
 - Every `/v1` response calls `SetVersionHeaders`.
-- JSON is built with `JsonObject` only. Never concatenate JSON strings.
+- JSON is built with `JsonObject` only. Never concatenate JSON strings. Request bodies are read
+  with `JsonDocument`.
+- A refusal is `throw ApiError(code, status, message)`; the route's wrapper, or the server's
+  exception handler, sends it as an error body.
 
 ### Data and SQL
 - Values from requests or Excel cells **never** go into SQL text by concatenation. DuckDB SQL takes
-  them as prepared-statement parameters. Oracle SQL takes them only through the renderer that
+  them as prepared-statement parameters (`QueryRows(connection, sql, {values})`); a secret is
+  created through `SecretManager`, not by writing `CREATE SECRET` text.
+- Secrets are never `PERSISTENT`: ofexceld opens its database with `allow_persistent_secrets =
+  false`. Oracle SQL takes them only through the renderer that
   CONTRACTS.md §4 specifies, with its vectors as tests.
 - A schema change is a new migration version in `migrations.cpp`. Never edit a version that has
   shipped: databases already at it would not see the change.
