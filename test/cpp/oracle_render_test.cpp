@@ -83,7 +83,7 @@ void Refused(const char *id, const std::string &fragment, const Inputs &inputs, 
              const std::string &fragment_of_message = "", const std::vector<QueryParam> &params = Params()) {
 	const auto result = RenderOracle(Statement(fragment), params, inputs);
 	if (result.ok || result.code != code || result.message.find(fragment_of_message) == std::string::npos) {
-		std::cerr << id << ": expected " << code << " «" << fragment_of_message << "», got "
+		std::cerr << id << ": expected " << code << " \"" << fragment_of_message << "\", got "
 		          << (result.ok ? "OK: " + result.rendered : result.code + " " + result.message) << "\n";
 		failures++;
 	}
@@ -211,11 +211,11 @@ void TestTokenizer() {
 	}
 	Renders("q-literal ends at bracket + quote only", "SELECT q'[a]b]' FROM dual WHERE a = :bu", {{"bu", N("5")}},
 	        "SELECT q'[a]b]' FROM dual WHERE a = 5");
-	Refused("q-literal unclosed", "SELECT q'[abc' FROM dual", {}, "E_SQL_TOKENIZE", "q-литерал");
+	Refused("q-literal unclosed", "SELECT q'[abc' FROM dual", {}, "E_SQL_TOKENIZE", "q-literal");
 	Refused("q-literal without delimiter", "SELECT q' x' FROM dual", {}, "E_SQL_TOKENIZE");
 	Renders("quoted identifier with \"\"", "SELECT \"A\"\"B:bu\" FROM t WHERE a = :bu", {{"bu", N("5")}},
 	        "SELECT \"A\"\"B:bu\" FROM t WHERE a = 5");
-	Refused("quoted identifier unclosed", "SELECT \"A FROM t", {}, "E_SQL_TOKENIZE", "идентификатор");
+	Refused("quoted identifier unclosed", "SELECT \"A FROM t", {}, "E_SQL_TOKENIZE", "identifier");
 	Renders("doubled quote in a string", "SELECT 'it''s :bu' FROM dual WHERE a = :bu", {{"bu", N("5")}},
 	        "SELECT 'it''s :bu' FROM dual WHERE a = 5");
 	Renders("N'…' string", "SELECT N':bu' FROM dual WHERE a = :bu", {{"bu", N("5")}},
@@ -234,7 +234,7 @@ void TestTokenizer() {
 	Refused("list after a word ending in IN", "WHERE id JOIN :ids", {{"ids", NumberList(1)}}, "E_PARAM_LIST_CONTEXT");
 	Refused("SELECT must lead", "(SELECT 1 FROM dual)", {}, "E_SQL_NOT_SELECT");
 	Refused("SELECTED is not SELECT", "SELECTED 1", {}, "E_SQL_NOT_SELECT");
-	Refused("error names its line", "SELECT 1\nFROM dual\nWHERE a = :1", {}, "E_PARAM_POSITIONAL", "строка 3");
+	Refused("error names its line", "SELECT 1\nFROM dual\nWHERE a = :1", {}, "E_PARAM_POSITIONAL", "line 3");
 	Refused("undeclared input", "WHERE a = :bu", {{"zz", N("1")}}, "E_PARAM_UNKNOWN", "zz");
 	Renders("input names in any case", "WHERE a = :bu", {{"BU", N("9")}}, "WHERE a = 9");
 	Renders("string with newline", "WHERE a = :n", {{"n", S("a\nb")}}, "WHERE a = 'a\nb'");

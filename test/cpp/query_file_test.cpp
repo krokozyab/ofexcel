@@ -45,7 +45,7 @@ void Refused(const char *id, const std::string &text, const char *code, const st
 	}
 	const auto &error = parsed.errors[0];
 	if (error.code != code || error.message.find(fragment) == std::string::npos || (line >= 0 && error.line != line)) {
-		Fail(id, std::string("expected ") + code + " containing «" + fragment + "» on line " + std::to_string(line),
+		Fail(id, std::string("expected ") + code + " containing \"" + fragment + "\" on line " + std::to_string(line),
 		     parsed);
 	}
 }
@@ -72,14 +72,14 @@ void TestVectors() {
 		      parsed);
 	}
 	Refused("P2", "-- @id: ap_invoices\n-- @engine: oracle\n" + BODY, "E_QUERY_PARSE",
-	        "нет обязательной директивы @version", 0);
-	Refused("P3", HEAD + "-- @engnie: oracle\n" + BODY, "E_QUERY_PARSE", "неизвестная директива @engnie", 4);
+	        "missing required directive @version", 0);
+	Refused("P3", HEAD + "-- @engnie: oracle\n" + BODY, "E_QUERY_PARSE", "unknown directive @engnie", 4);
 	{
-		const auto parsed = Ok("P4", HEAD + "-- @param bu: integer = 204 | Бизнес-единица\n" + BODY);
+		const auto parsed = Ok("P4", HEAD + "-- @param bu: integer = 204 | Business unit\n" + BODY);
 		const auto &param = OnlyParam(parsed);
 		Check("P4", param.name == "bu" && param.type.kind == ParamKind::INTEGER && param.has_default &&
 		                !param.default_value.is_list && param.default_value.scalar == "204" &&
-		                param.description == "Бизнес-единица" && param.line == 4,
+		                param.description == "Business unit" && param.line == 4,
 		      parsed);
 	}
 	Refused("P5", HEAD + "-- @param d: date = 2026-13-01\n" + BODY, "E_QUERY_PARSE", "2026-13-01", 4);
@@ -95,36 +95,36 @@ void TestVectors() {
 		                param.default_value.scalar == "ALL",
 		      parsed);
 	}
-	Refused("P8", HEAD + "-- @param st: enum(OPEN,PAID) = ALL\n" + BODY, "E_QUERY_PARSE", "не из списка", 4);
-	Refused("P9", HEAD + "-- @param ids: list<enum(A,B)>\n" + BODY, "E_QUERY_PARSE", "enum и list в list", 4);
+	Refused("P8", HEAD + "-- @param st: enum(OPEN,PAID) = ALL\n" + BODY, "E_QUERY_PARSE", "is not one of", 4);
+	Refused("P9", HEAD + "-- @param ids: list<enum(A,B)>\n" + BODY, "E_QUERY_PARSE", "enum and list in list", 4);
 	{
-		const auto parsed = Ok("P10", HEAD + "-- @column VENDOR_ID: id | Поставщик\n" + BODY);
+		const auto parsed = Ok("P10", HEAD + "-- @column VENDOR_ID: id | Supplier\n" + BODY);
 		Check("P10", parsed.header.columns.size() == 1 && parsed.header.columns[0].name == "VENDOR_ID" &&
 		                 parsed.header.columns[0].type.kind == ColumnKind::ID &&
-		                 parsed.header.columns[0].header == "Поставщик",
+		                 parsed.header.columns[0].header == "Supplier",
 		      parsed);
 	}
 	Refused("P11", HEAD + "-- @refresh: incremental(key = id, watermark = d)\n" + BODY, "E_UNSUPPORTED",
-	        "инкрементальное", 4);
+	        "incremental refresh", 4);
 	Refused("P12", HEAD + "-- @param bu: integer\n-- @depends: ap_invoices(bu := $bu)\n" + BODY, "E_QUERY_PARSE",
-	        "@depends допустима только", 5);
-	Refused("P13", LOCAL_HEAD + "-- @connection: fusion_prod\n" + BODY, "E_QUERY_PARSE", "@connection допустима только",
+	        "@depends is only allowed", 5);
+	Refused("P13", LOCAL_HEAD + "-- @connection: fusion_prod\n" + BODY, "E_QUERY_PARSE", "@connection is only allowed",
 	        4);
-	Refused("P14", HEAD + "-- @id: other\n" + BODY, "E_QUERY_PARSE", "@id повторяется (первая — в строке 1)", 4);
-	Refused("P15", HEAD + "-- только комментарий\n\n", "E_QUERY_PARSE", "нет текста запроса");
+	Refused("P14", HEAD + "-- @id: other\n" + BODY, "E_QUERY_PARSE", "@id is repeated (first on line 1)", 4);
+	Refused("P15", HEAD + "-- only a comment\n\n", "E_QUERY_PARSE", "no query text");
 	// Parameter names are lower case only (§1): "BU" is not a name, so it can
 	// never collide with "bu".
 	Refused("P16", HEAD + "-- @param BU: integer\n-- @param bu: string\n" + BODY, "E_QUERY_PARSE",
-	        "«BU» — недопустимое имя", 4);
+	        "\"BU\" is not a valid name", 4);
 	Refused("P16 same name twice", HEAD + "-- @param bu: integer\n-- @param bu: string\n" + BODY, "E_QUERY_PARSE",
-	        "@param bu повторяется", 5);
+	        "@param bu is repeated", 5);
 }
 
 // --- §2.1 structure ----------------------------------------------------------
 
 void TestStructure() {
 	{
-		const auto text = "\xEF\xBB\xBF" "-- @id: q\r\n   -- @engine: oracle\r\n\r\n-- комментарий @id: x\r\n"
+		const auto text = "\xEF\xBB\xBF" "-- @id: q\r\n   -- @engine: oracle\r\n\r\n-- comment @id: x\r\n"
 		                  "--@version:1\r\nSELECT 1\r\nFROM dual -- @id: not_header\r\n";
 		const auto parsed = Ok("S1 BOM, CRLF, indent, blank line, comment, no spaces", text);
 		Check("S1", parsed.header.id == "q" && parsed.header.version == 1 && parsed.header.body_line == 6 &&
@@ -137,8 +137,8 @@ void TestStructure() {
 		const auto parsed = Ok("S2 directive in body", HEAD + BODY + "-- @id: other\n");
 		Check("S2", parsed.header.id == "q", parsed);
 	}
-	Refused("S3 body of comments only", HEAD + "\n" + "/* x */ \n", "E_QUERY_PARSE", "нет текста запроса");
-	Refused("S4 upper-case key", HEAD + "-- @Title: x\n" + BODY, "E_QUERY_PARSE", "в нижнем регистре: @title", 4);
+	Refused("S3 body of comments only", HEAD + "\n" + "/* x */ \n", "E_QUERY_PARSE", "no query text");
+	Refused("S4 upper-case key", HEAD + "-- @Title: x\n" + BODY, "E_QUERY_PARSE", "in lowercase: @title", 4);
 	{
 		// The blank line after the last "\n" is header too, so the body would start on line 4.
 		const auto parsed = ParseQueryFile("-- @engnie: oracle\n-- @version: 0\n");
@@ -148,9 +148,9 @@ void TestStructure() {
 		      parsed);
 	}
 	Refused("S6 invalid UTF-8", HEAD + "-- @title: \xC3\x28\n" + BODY, "E_QUERY_PARSE", "UTF-8", 4);
-	Refused("S7 empty value", HEAD + "-- @title:\n" + BODY, "E_QUERY_PARSE", "нет значения", 4);
+	Refused("S7 empty value", HEAD + "-- @title:\n" + BODY, "E_QUERY_PARSE", "has no value", 4);
 	{
-		const auto parsed = Ok("S8 '-- @' without a letter is a comment", HEAD + "-- @ 10:00 ежедневно\n" + BODY);
+		const auto parsed = Ok("S8 '-- @' without a letter is a comment", HEAD + "-- @ 10:00 daily\n" + BODY);
 		Check("S8", parsed.header.title.empty(), parsed);
 	}
 }
@@ -160,14 +160,14 @@ void TestStructure() {
 void TestId() {
 	Ok("D-id-valid", "-- @id: ap_invoices_2\n-- @engine: oracle\n-- @version: 1\n" + BODY);
 	Refused("D-id-invalid", "-- @id: AP-Invoices\n-- @engine: oracle\n-- @version: 1\n" + BODY, "E_QUERY_PARSE",
-	        "не идентификатор", 1);
+	        "is not an identifier", 1);
 }
 
 void TestEngine() {
 	Check("D-engine-valid", Ok("D-engine-valid", LOCAL_HEAD + "SELECT 1\n").header.engine == Engine::LOCAL,
 	      ParsedQueryFile());
 	Refused("D-engine-invalid", "-- @id: q\n-- @engine: Oracle\n-- @version: 1\n" + BODY, "E_QUERY_PARSE",
-	        "ожидается oracle или local", 2);
+	        "expected oracle or local", 2);
 }
 
 void TestVersion() {
@@ -183,34 +183,38 @@ void TestVersion() {
 
 void TestTitle() {
 	const std::string title_200(200, 'x');
-	std::string cyrillic_200;
+	std::string non_ascii_200;
 	for (int i = 0; i < 200; i++) {
-		cyrillic_200 += "я";
+		non_ascii_200 += "é";
 	}
-	Check("D-title-valid", Ok("D-title-valid", HEAD + "-- @title: " + cyrillic_200 + "\n" + BODY).header.title == cyrillic_200,
+	Check("D-title-valid",
+	      Ok("D-title-valid", HEAD + "-- @title: " + non_ascii_200 + "\n" + BODY).header.title == non_ascii_200,
 	      ParsedQueryFile());
 	Ok("D-title-valid ascii", HEAD + "-- @title: " + title_200 + "\n" + BODY);
-	Refused("D-title-invalid", HEAD + "-- @title: " + cyrillic_200 + "я\n" + BODY, "E_QUERY_PARSE", "длиннее 200", 4);
+	Refused("D-title-invalid", HEAD + "-- @title: " + non_ascii_200 + "é\n" + BODY, "E_QUERY_PARSE", "longer than 200",
+	        4);
 }
 
 void TestDescription() {
-	const auto parsed = Ok("D-description-valid", HEAD + "-- @description: Первая\n-- @description:\n-- @description: Третья\n" + BODY);
-	Check("D-description-valid", parsed.header.description == "Первая\n\nТретья", parsed);
+	const auto parsed =
+	    Ok("D-description-valid", HEAD + "-- @description: First\n-- @description:\n-- @description: Third\n" + BODY);
+	Check("D-description-valid", parsed.header.description == "First\n\nThird", parsed);
 	// Repeatable, so there is no invalid value; an unknown neighbour is the error.
-	Refused("D-description-invalid", HEAD + "-- @descripton: x\n" + BODY, "E_QUERY_PARSE", "неизвестная директива", 4);
+	Refused("D-description-invalid", HEAD + "-- @descripton: x\n" + BODY, "E_QUERY_PARSE", "unknown directive", 4);
 }
 
 void TestConnection() {
 	Check("D-connection-valid",
 	      Ok("D-connection-valid", HEAD + "-- @connection: fusion_prod\n" + BODY).header.connection == "fusion_prod",
 	      ParsedQueryFile());
-	Refused("D-connection-invalid", HEAD + "-- @connection: Fusion Prod\n" + BODY, "E_QUERY_PARSE", "не имя подключения", 4);
+	Refused("D-connection-invalid", HEAD + "-- @connection: Fusion Prod\n" + BODY, "E_QUERY_PARSE",
+	        "is not a connection name", 4);
 }
 
 void TestParam() {
 	{
 		const auto parsed = Ok("D-param-valid", HEAD +
-		                                            "-- @param a: decimal( 18 , 2 ) = 0012.500 | Сумма\n"
+		                                            "-- @param a: decimal( 18 , 2 ) = 0012.500 | Amount\n"
 		                                            "-- @param b: list<id> = 007, 8 ,9\n"
 		                                            "-- @param c: list< date > = \"\"\n"
 		                                            "-- @param d: timestamp = 2026-10-29T08:30:00.120000\n"
@@ -218,14 +222,15 @@ void TestParam() {
 		                                            "-- @param f: enum(Open, Paid) = paid\n"
 		                                            "-- @param g: number = 0.10\n"
 		                                            "-- @param h: string = \"say \\\"hi\\\"\" | quoted\n"
-		                                            "-- @param i: string | без значения по умолчанию\n" +
+		                                            "-- @param i: string | no default value\n" +
 		                                            BODY);
 		const auto &params = parsed.header.params;
 		Check("D-param-valid count and order",
 		      params.size() == 9 && params[0].name == "a" && params[8].name == "i", parsed);
 		if (params.size() == 9) {
 			Check("D-param-valid decimal", params[0].type.ToString() == "decimal(18,2)" &&
-			                                   params[0].default_value.scalar == "12.5" && params[0].description == "Сумма",
+			                                   params[0].default_value.scalar == "12.5" &&
+			                                   params[0].description == "Amount",
 			      parsed);
 			Check("D-param-valid list", params[1].default_value.is_list &&
 			                                (params[1].default_value.list == std::vector<std::string> {"7", "8", "9"}),
@@ -239,27 +244,31 @@ void TestParam() {
 			Check("D-param-valid number", params[6].default_value.scalar == "0.1", parsed);
 			Check("D-param-valid quoted", params[7].default_value.scalar == "say \"hi\"" && params[7].description == "quoted",
 			      parsed);
-			Check("D-param-valid no default", !params[8].has_default && params[8].description == "без значения по умолчанию",
+			Check("D-param-valid no default", !params[8].has_default && params[8].description == "no default value",
 			      parsed);
 		}
 	}
-	Refused("D-param-invalid no colon", HEAD + "-- @param bu integer\n" + BODY, "E_QUERY_PARSE", "@param пишется как", 4);
-	Refused("D-param-invalid type", HEAD + "-- @param bu: int\n" + BODY, "E_QUERY_PARSE", "неизвестный тип «int»", 4);
+	Refused("D-param-invalid no colon", HEAD + "-- @param bu integer\n" + BODY, "E_QUERY_PARSE", "@param is written as",
+	        4);
+	Refused("D-param-invalid type", HEAD + "-- @param bu: int\n" + BODY, "E_QUERY_PARSE", "unknown type \"int\"", 4);
 	Refused("D-param-invalid decimal", HEAD + "-- @param a: decimal(39,2)\n" + BODY, "E_QUERY_PARSE", "1 ≤ p ≤ 38", 4);
 	Refused("D-param-invalid decimal fit", HEAD + "-- @param a: decimal(5,2) = 1234.5\n" + BODY, "E_QUERY_PARSE",
-	        "не помещается", 4);
-	Refused("D-param-invalid list element", HEAD + "-- @param b: list<id> = 1, x\n" + BODY, "E_QUERY_PARSE", "«x»", 4);
-	Refused("D-param-invalid list of list", HEAD + "-- @param b: list<list<id>>\n" + BODY, "E_QUERY_PARSE", "в list", 4);
-	Refused("D-param-invalid empty default", HEAD + "-- @param s: string = | x\n" + BODY, "E_QUERY_PARSE", "нет значения",
+	        "does not fit", 4);
+	Refused("D-param-invalid list element", HEAD + "-- @param b: list<id> = 1, x\n" + BODY, "E_QUERY_PARSE", "\"x\"",
 	        4);
-	Refused("D-param-invalid unclosed quote", HEAD + "-- @param s: string = \"abc\n" + BODY, "E_QUERY_PARSE", "не закрыто",
+	Refused("D-param-invalid list of list", HEAD + "-- @param b: list<list<id>>\n" + BODY, "E_QUERY_PARSE", "in list",
 	        4);
+	Refused("D-param-invalid empty default", HEAD + "-- @param s: string = | x\n" + BODY, "E_QUERY_PARSE",
+	        "no default value", 4);
+	Refused("D-param-invalid unclosed quote", HEAD + "-- @param s: string = \"abc\n" + BODY, "E_QUERY_PARSE",
+	        "unterminated", 4);
 	Refused("D-param-invalid after quote", HEAD + "-- @param s: string = \"a\" b\n" + BODY, "E_QUERY_PARSE",
-	        "ожидается «|»", 4);
-	Refused("D-param-invalid enum duplicate", HEAD + "-- @param st: enum(A,a)\n" + BODY, "E_QUERY_PARSE", "повторяется",
+	        "expected \"|\"", 4);
+	Refused("D-param-invalid enum duplicate", HEAD + "-- @param st: enum(A,a)\n" + BODY, "E_QUERY_PARSE", "is repeated",
 	        4);
-	Refused("D-param-invalid trailing", HEAD + "-- @param n: integer integer\n" + BODY, "E_QUERY_PARSE", "лишнее", 4);
-	Refused("D-param-invalid number exponent", HEAD + "-- @param n: number = 1e5\n" + BODY, "E_QUERY_PARSE", "экспонента",
+	Refused("D-param-invalid trailing", HEAD + "-- @param n: integer integer\n" + BODY, "E_QUERY_PARSE", "unexpected",
+	        4);
+	Refused("D-param-invalid number exponent", HEAD + "-- @param n: number = 1e5\n" + BODY, "E_QUERY_PARSE", "exponent",
 	        4);
 }
 
@@ -267,18 +276,19 @@ void TestColumn() {
 	{
 		const auto parsed = Ok("D-column-valid", HEAD +
 		                                             "-- @column AMOUNT: decimal(18,2)\n"
-		                                             "-- @column created$at#: timestamptz | Создано\n" +
+		                                             "-- @column created$at#: timestamptz | Created\n" +
 		                                             BODY);
 		Check("D-column-valid", parsed.header.columns.size() == 2 &&
 		                            parsed.header.columns[0].type.ToString() == "decimal(18,2)" &&
 		                            parsed.header.columns[1].type.kind == ColumnKind::TIMESTAMPTZ,
 		      parsed);
 	}
-	Refused("D-column-invalid type", HEAD + "-- @column AMOUNT: money\n" + BODY, "E_QUERY_PARSE", "неизвестный тип колонки",
+	Refused("D-column-invalid type", HEAD + "-- @column AMOUNT: money\n" + BODY, "E_QUERY_PARSE", "unknown column type",
 	        4);
-	Refused("D-column-invalid name", HEAD + "-- @column 1ST: id\n" + BODY, "E_QUERY_PARSE", "недопустимое имя колонки", 4);
+	Refused("D-column-invalid name", HEAD + "-- @column 1ST: id\n" + BODY, "E_QUERY_PARSE",
+	        "is not a valid column name", 4);
 	Refused("D-column-invalid duplicate", HEAD + "-- @column vendor_id: id\n-- @column VENDOR_ID: id\n" + BODY,
-	        "E_QUERY_PARSE", "повторяется", 5);
+	        "E_QUERY_PARSE", "is repeated", 5);
 }
 
 void TestDepends() {
@@ -314,29 +324,30 @@ void TestDepends() {
 			Check("D-depends-valid no arguments", depends[2].arguments.empty(), parsed);
 		}
 	}
-	Refused("D-depends-invalid syntax", LOCAL_HEAD + "-- @depends: ap_invoices(bu = 1)\n" + BODY, "E_QUERY_PARSE", "«:=»",
-	        4);
+	Refused("D-depends-invalid syntax", LOCAL_HEAD + "-- @depends: ap_invoices(bu = 1)\n" + BODY, "E_QUERY_PARSE",
+	        "\":=\"", 4);
 	Refused("D-depends-invalid undeclared", LOCAL_HEAD + "-- @depends: ap_invoices(bu := $bu)\n" + BODY, "E_QUERY_PARSE",
-	        "$bu не объявлен", 4);
+	        "$bu is not declared", 4);
 	Refused("D-depends-invalid date", LOCAL_HEAD + "-- @depends: ap_invoices(d := DATE '2026-02-30')\n" + BODY,
 	        "E_QUERY_PARSE", "2026-02-30", 4);
 	Refused("D-depends-invalid unclosed", LOCAL_HEAD + "-- @depends: ap_invoices(s := 'x)\n" + BODY, "E_QUERY_PARSE",
-	        "не закрыта", 4);
-	Refused("D-depends-invalid self", LOCAL_HEAD + "-- @depends: q()\n" + BODY, "E_QUERY_PARSE", "от самого себя", 4);
+	        "unterminated string", 4);
+	Refused("D-depends-invalid self", LOCAL_HEAD + "-- @depends: q()\n" + BODY, "E_QUERY_PARSE", "depend on itself", 4);
 	Refused("D-depends-invalid repeated argument", LOCAL_HEAD + "-- @depends: a(x := 1, x := 2)\n" + BODY, "E_QUERY_PARSE",
-	        "повторяется", 4);
-	Refused("D-depends-invalid trailing", LOCAL_HEAD + "-- @depends: a() b\n" + BODY, "E_QUERY_PARSE", "лишний текст", 4);
+	        "is repeated", 4);
+	Refused("D-depends-invalid trailing", LOCAL_HEAD + "-- @depends: a() b\n" + BODY, "E_QUERY_PARSE",
+	        "unexpected text", 4);
 }
 
 void TestRefresh() {
 	Ok("D-refresh-valid", HEAD + "-- @refresh: full\n" + BODY);
-	Refused("D-refresh-invalid", HEAD + "-- @refresh: daily\n" + BODY, "E_QUERY_PARSE", "ожидается full", 4);
+	Refused("D-refresh-invalid", HEAD + "-- @refresh: daily\n" + BODY, "E_QUERY_PARSE", "expected full", 4);
 }
 
 void TestMaxRows() {
 	Check("D-max_rows-valid", Ok("D-max_rows-valid", HEAD + "-- @max_rows: 1048575\n" + BODY).header.max_rows == 1048575,
 	      ParsedQueryFile());
-	Refused("D-max_rows-invalid", HEAD + "-- @max_rows: 1048576\n" + BODY, "E_QUERY_PARSE", "от 1 до 1048575", 4);
+	Refused("D-max_rows-invalid", HEAD + "-- @max_rows: 1048576\n" + BODY, "E_QUERY_PARSE", "from 1 to 1048575", 4);
 }
 
 } // namespace

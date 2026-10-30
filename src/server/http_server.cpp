@@ -40,11 +40,11 @@ int StatusOf(GuardVerdict verdict) {
 const char *MessageOf(GuardVerdict verdict) {
 	switch (verdict) {
 	case GuardVerdict::BAD_HOST:
-		return "Запрос пришёл не на 127.0.0.1 или localhost с портом ofexceld";
+		return "The request was not sent to 127.0.0.1 or localhost on the ofexceld port";
 	case GuardVerdict::BAD_ORIGIN:
-		return "Источник запроса (Origin) не разрешён для ofexceld";
+		return "The request origin (Origin) is not allowed by ofexceld";
 	case GuardVerdict::BAD_SESSION:
-		return "Нет или неверный токен сессии ofexceld";
+		return "The ofexceld session token is missing or invalid";
 	default:
 		return "";
 	}
@@ -94,15 +94,15 @@ void InstallFallbacks(httplib::Server &server) {
 			return;
 		}
 		if (response.status == 404) {
-			SendError(response, 404, "E_NOT_FOUND", "Нет такого маршрута");
+			SendError(response, 404, "E_NOT_FOUND", "No such route");
 		} else if (response.status == 413) {
-			SendError(response, 413, "E_BAD_REQUEST", "Тело запроса слишком большое");
+			SendError(response, 413, "E_BAD_REQUEST", "The request body is too large");
 		} else {
-			SendError(response, response.status, "E_BAD_REQUEST", "Запрос не обработан");
+			SendError(response, response.status, "E_BAD_REQUEST", "The request was not handled");
 		}
 	});
 	server.set_exception_handler([](const httplib::Request &, httplib::Response &response, std::exception_ptr error) {
-		std::string message = "Внутренняя ошибка ofexceld";
+		std::string message = "ofexceld internal error";
 		try {
 			std::rethrow_exception(error);
 		} catch (const ApiError &api_error) {
@@ -136,7 +136,7 @@ std::unique_ptr<httplib::SSLServer> CreateTlsServer(const std::string &tls_dir) 
 	memory.key_pem_len = pem.key_pem.size();
 	auto server = std::make_unique<httplib::SSLServer>(memory);
 	if (!server->is_valid()) {
-		throw duckdb::IOException("E_INTERNAL: сертификат сервера в %s не принят TLS (код %d). Выполните ofexceld "
+		throw duckdb::IOException("E_INTERNAL: TLS rejected the server certificate in %s (code %d). Run ofexceld "
 		                          "install-cert",
 		                          tls_dir, server->ssl_last_error());
 	}
@@ -192,7 +192,7 @@ httplib::Server::Handler WithConnection(const RouteContext &context, ConnectionH
 	return [context, handler](const httplib::Request &request, httplib::Response &response) {
 		auto connection = context.Connect();
 		if (!connection) {
-			SendError(response, 503, "E_INTERNAL", "База данных закрыта");
+			SendError(response, 503, "E_INTERNAL", "The database is closed");
 			return;
 		}
 		try {
@@ -212,13 +212,13 @@ JsonDocument ParseBody(const httplib::Request &request) {
 		}
 	} catch (const std::invalid_argument &) {
 	}
-	throw ApiError("E_BAD_REQUEST", 400, "Тело запроса должно быть объектом JSON");
+	throw ApiError("E_BAD_REQUEST", 400, "The request body must be a JSON object");
 }
 
 std::string RequiredString(const JsonValue &body, const std::string &key) {
 	const auto value = body.Get(key);
 	if (!value.Is(JsonKind::STRING)) {
-		throw ApiError("E_BAD_REQUEST", 422, "В теле запроса нет строки " + key);
+		throw ApiError("E_BAD_REQUEST", 422, "The request body has no string " + key);
 	}
 	return value.String();
 }
@@ -246,7 +246,7 @@ HttpServer &HttpServer::Get() {
 std::string HttpServer::Start(duckdb::shared_ptr<duckdb::DatabaseInstance> db, ServerOptions options) {
 	std::lock_guard<std::mutex> guard(state->mutex);
 	if (state->server) {
-		throw duckdb::InvalidInputException("E_CONFLICT: сервер ofexceld уже запущен на %s", state->url);
+		throw duckdb::InvalidInputException("E_CONFLICT: the ofexceld server is already running on %s", state->url);
 	}
 
 	// Certificates before migrations: a daemon that cannot serve HTTPS should
@@ -265,10 +265,10 @@ std::string HttpServer::Start(duckdb::shared_ptr<duckdb::DatabaseInstance> db, S
 	if (port == 0) {
 		port = server->bind_to_any_port(bind_address);
 		if (port < 0) {
-			throw duckdb::IOException("E_CONFLICT: не удалось занять свободный порт на %s", bind_address);
+			throw duckdb::IOException("E_CONFLICT: could not take a free port on %s", bind_address);
 		}
 	} else if (!server->bind_to_port(bind_address, port)) {
-		throw duckdb::IOException("E_CONFLICT: порт %d на %s занят или недоступен", port, bind_address);
+		throw duckdb::IOException("E_CONFLICT: port %d on %s is in use or unavailable", port, bind_address);
 	}
 	options.guard.port = port;
 	if (options.guard.profile == Profile::LOCAL) {

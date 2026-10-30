@@ -41,7 +41,7 @@ int RunSecurity(const std::vector<std::string> &arguments) {
 	argv.push_back(nullptr);
 	pid_t pid = 0;
 	if (posix_spawn(&pid, SECURITY_TOOL, nullptr, nullptr, argv.data(), environ) != 0) {
-		throw std::runtime_error(std::string("Не удалось запустить ") + SECURITY_TOOL);
+		throw std::runtime_error(std::string("Could not start ") + SECURITY_TOOL);
 	}
 	int status = 0;
 	while (waitpid(pid, &status, 0) < 0) {
@@ -52,7 +52,7 @@ int RunSecurity(const std::vector<std::string> &arguments) {
 std::string LoginKeychain() {
 	const char *home = std::getenv("HOME");
 	if (!home || !*home) {
-		throw std::runtime_error("Не задана переменная окружения HOME: не найти связку ключей входа");
+		throw std::runtime_error("The HOME environment variable is not set, so the login keychain cannot be found");
 	}
 	return JoinPath(home, "Library/Keychains/login.keychain-db");
 }
@@ -64,8 +64,8 @@ void TrustCa(const std::string &ca_cert_path, const CertificateIdentity &) {
 	// the user's own password to change them.
 	const int status = RunSecurity({"add-trusted-cert", "-r", "trustRoot", "-k", LoginKeychain(), ca_cert_path});
 	if (status != 0) {
-		throw std::runtime_error("macOS не добавил локальный CA в доверенные (security add-trusted-cert, код " +
-		                         std::to_string(status) + "). Возможно, вход в систему не подтверждён паролем");
+		throw std::runtime_error("macOS did not trust the local CA (security add-trusted-cert, code " +
+		                         std::to_string(status) + "). The password prompt may not have been confirmed");
 	}
 }
 
@@ -73,9 +73,9 @@ void UntrustCa(const std::string &ca_cert_path, const CertificateIdentity &ca) {
 	const int trust_status = RunSecurity({"remove-trusted-cert", ca_cert_path});
 	const int delete_status = RunSecurity({"delete-certificate", "-Z", ca.sha1_hex, LoginKeychain()});
 	if (trust_status != 0 && delete_status != 0) {
-		throw std::runtime_error("macOS не удалил локальный CA из связки ключей входа (security, коды " +
+		throw std::runtime_error("macOS did not remove the local CA from the login keychain (security, codes " +
 		                         std::to_string(trust_status) + ", " + std::to_string(delete_status) +
-		                         "). Если CA там нет, повторите с --no-trust");
+		                         "). If the CA is not there, run again with --no-trust");
 	}
 }
 
@@ -86,7 +86,7 @@ namespace {
 HCERTSTORE OpenUserRoot() {
 	HCERTSTORE store = CertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, 0, CERT_SYSTEM_STORE_CURRENT_USER, L"ROOT");
 	if (!store) {
-		throw std::runtime_error("Не удалось открыть хранилище сертификатов CurrentUser\\ROOT (код " +
+		throw std::runtime_error("Could not open the CurrentUser\\ROOT certificate store (code " +
 		                         std::to_string(GetLastError()) + ")");
 	}
 	return store;
@@ -112,8 +112,8 @@ void TrustCa(const std::string &, const CertificateIdentity &ca) {
 	CertCloseStore(store, 0);
 	if (!added) {
 		throw std::runtime_error(error == ERROR_CANCELLED
-		                             ? "Добавление локального CA в доверенные отменено пользователем"
-		                             : "Windows не добавил локальный CA в CurrentUser\\ROOT (код " +
+		                             ? "The user cancelled trusting the local CA"
+		                             : "Windows did not add the local CA to CurrentUser\\ROOT (code " +
 		                                   std::to_string(error) + ")");
 	}
 }
@@ -134,8 +134,8 @@ void UntrustCa(const std::string &, const CertificateIdentity &ca) {
 	CertCloseStore(store, 0);
 	if (!removed) {
 		throw std::runtime_error(error == ERROR_CANCELLED
-		                             ? "Удаление локального CA из доверенных отменено пользователем"
-		                             : "Windows не удалил локальный CA из CurrentUser\\ROOT (код " +
+		                             ? "The user cancelled removing trust in the local CA"
+		                             : "Windows did not remove the local CA from CurrentUser\\ROOT (code " +
 		                                   std::to_string(error) + ")");
 	}
 }
@@ -143,11 +143,11 @@ void UntrustCa(const std::string &, const CertificateIdentity &ca) {
 #else
 
 void TrustCa(const std::string &, const CertificateIdentity &) {
-	throw std::runtime_error("Установка CA в доверенные на этой платформе не поддерживается; используйте --no-trust");
+	throw std::runtime_error("Trusting the CA is not supported on this platform; use --no-trust");
 }
 
 void UntrustCa(const std::string &, const CertificateIdentity &) {
-	throw std::runtime_error("Удаление CA из доверенных на этой платформе не поддерживается; используйте --no-trust");
+	throw std::runtime_error("Removing trust in the CA is not supported on this platform; use --no-trust");
 }
 
 #endif

@@ -143,8 +143,8 @@ void RunMigrations(duckdb::Connection &connection) {
 	Execute(connection, "CREATE TABLE IF NOT EXISTS meta.schema_version (version INTEGER NOT NULL)");
 	const auto current = CurrentSchemaVersion(connection);
 	if (current > LATEST_SCHEMA_VERSION) {
-		throw duckdb::IOException("E_INTERNAL: база данных создана более новой версией ofexceld (схема %d, эта сборка "
-		                          "знает только %d)",
+		throw duckdb::IOException("E_INTERNAL: the database was created by a newer version of ofexceld (schema %d, "
+		                          "this build knows only %d)",
 		                          current, LATEST_SCHEMA_VERSION);
 	}
 	if (current < 1) {

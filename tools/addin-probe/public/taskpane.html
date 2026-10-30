@@ -23,32 +23,32 @@
 	</style>
 </head>
 <body>
-	<h1>QExcel — зонд фазы 0</h1>
-	<div class="note">Отчёт сохраняется автоматически после каждого эксперимента в <code>tools/addin-probe/reports/</code>.</div>
-	<label>Адрес демона <input id="daemon" value="http://127.0.0.1:47321"></label>
-	<div id="status">Загрузка…</div>
+	<h1>QExcel — phase 0 probe</h1>
+	<div class="note">The report is saved automatically after each experiment to <code>tools/addin-probe/reports/</code>.</div>
+	<label>Daemon address <input id="daemon" value="http://127.0.0.1:47321"></label>
+	<div id="status">Loading…</div>
 
-	<button id="run-all" class="primary">Запустить всё (кроме 500 тыс.)</button>
+	<button id="run-all" class="primary">Run all (except 500k)</button>
 
-	<h2>По отдельности</h2>
-	<button data-run="environment">1. Окружение и наборы API</button>
-	<button data-run="connectivity">2. Связь с демоном (fetch, CORS, preflight)</button>
-	<button data-run="write10k">3a. Запись в таблицу: 10 тыс. строк</button>
-	<button data-run="write100k">3b. Запись в таблицу: 100 тыс. строк</button>
-	<button data-run="chunks">3c. Предел размера порции записи</button>
-	<button data-run="write500k">3d. Запись в таблицу: 500 тыс. строк (долго)</button>
-	<button data-run="refresh">4. Обновление таблицы: resize, стиль, вычисляемая колонка</button>
-	<button data-run="injection">5. Формулы в данных: =, +, -, @</button>
-	<button data-run="dates">6. Система дат книги</button>
-	<button data-run="functions">7. Пользовательские функции: пустые ячейки, LATE, META</button>
+	<h2>One at a time</h2>
+	<button data-run="environment">1. Environment and API sets</button>
+	<button data-run="connectivity">2. Daemon connectivity (fetch, CORS, preflight)</button>
+	<button data-run="write10k">3a. Table write: 10k rows</button>
+	<button data-run="write100k">3b. Table write: 100k rows</button>
+	<button data-run="chunks">3c. Write chunk size limit</button>
+	<button data-run="write500k">3d. Table write: 500k rows (slow)</button>
+	<button data-run="refresh">4. Table refresh: resize, style, calculated column</button>
+	<button data-run="injection">5. Formulas in data: =, +, -, @</button>
+	<button data-run="dates">6. Workbook date system</button>
+	<button data-run="functions">7. Custom functions: empty cells, LATE, META</button>
 
-	<h2>Кэш метаданных функций (проверка 9)</h2>
-	<button data-run="metaSwitch">8a. Переключить метаданные на вариант 2</button>
-	<button data-run="metaCheck">8b. Проверить, видит ли Excel PROBE.NEW</button>
-	<button data-run="metaReset">8c. Вернуть вариант 1</button>
-	<div class="note">После 8a: закройте и снова откройте панель → 8b. Затем полностью перезапустите Excel → снова 8b.</div>
+	<h2>Function metadata cache (check 9)</h2>
+	<button data-run="metaSwitch">8a. Switch metadata to variant 2</button>
+	<button data-run="metaCheck">8b. Check whether Excel sees PROBE.NEW</button>
+	<button data-run="metaReset">8c. Restore variant 1</button>
+	<div class="note">After 8a: close and reopen the task pane → 8b. Then fully restart Excel → 8b again.</div>
 
-	<h2>Журнал</h2>
+	<h2>Log</h2>
 	<div id="log"></div>
 
 	<script src="taskpane.js"></script>

@@ -39,12 +39,12 @@ void Accepts(const char *id, const std::string &type, const ParamInput &input, c
              const CanonicalValue *default_value = nullptr) {
 	const auto result = NormalizeParam(Type(type), default_value, input);
 	if (!result.ok) {
-		std::cerr << id << ": " << type << " refused «" << input.text << "»: " << result.code << " " << result.message
+		std::cerr << id << ": " << type << " refused \"" << input.text << "\": " << result.code << " " << result.message
 		          << "\n";
 		failures++;
 	} else if (Describe(result.value) != expected) {
-		std::cerr << id << ": " << type << " «" << input.text << "» → «" << Describe(result.value) << "», expected «"
-		          << expected << "»\n";
+		std::cerr << id << ": " << type << " \"" << input.text << "\" → \"" << Describe(result.value)
+		          << "\", expected \"" << expected << "\"\n";
 		failures++;
 	}
 }
@@ -53,7 +53,8 @@ void Refuses(const char *id, const std::string &type, const ParamInput &input, c
              const std::string &fragment = "") {
 	const auto result = NormalizeParam(Type(type), nullptr, input);
 	if (result.ok || result.code != code || result.message.find(fragment) == std::string::npos) {
-		std::cerr << id << ": " << type << " «" << input.text << "»: expected " << code << " «" << fragment << "», got "
+		std::cerr << id << ": " << type << " \"" << input.text << "\": expected " << code << " \"" << fragment
+		          << "\", got "
 		          << (result.ok ? "OK " + Describe(result.value) : result.code + " " + result.message) << "\n";
 		failures++;
 	}
@@ -106,7 +107,7 @@ void TestDecimal() {
 }
 
 void TestString() {
-	Accepts("string string", "string", S("Иван"), "Иван");
+	Accepts("string string", "string", S("Zoë"), "Zoë");
 	Accepts("string number", "string", N("204"), "204");
 	Accepts("string number fraction", "string", N("0.10"), "0.1");
 	Accepts("string boolean", "string", ParamInput::Boolean(true), "true");
@@ -129,7 +130,7 @@ void TestId() {
 
 void TestDate() {
 	Accepts("date string", "date", S("2026-10-29"), "2026-10-29");
-	Refuses("date serial number", "date", N("46324"), "E_PARAM_TYPE", "строкой");
+	Refuses("date serial number", "date", N("46324"), "E_PARAM_TYPE", "YYYY-MM-DD string");
 	Refuses("date invalid", "date", S("2026-02-30"));
 	Refuses("date with time", "date", S("2026-10-29 10:00:00"));
 }
@@ -160,10 +161,10 @@ void TestList() {
 	Accepts("list empty", "list<id>", ParamInput::Array({}), "[]");
 	Accepts("list keeps order and duplicates", "list<integer>", ParamInput::Array({N("3"), N("1"), N("3")}), "[3,1,3]");
 	Accepts("list<string> holds an empty string", "list<string>", ParamInput::Array({S(""), S("a")}), "[,a]");
-	Refuses("list element", "list<id>", ParamInput::Array({S("1"), S("x")}), "E_PARAM_TYPE", "элемент 2");
-	Refuses("list null element", "list<id>", ParamInput::Array({ParamInput::Null()}), "E_PARAM_TYPE", "элемент 1");
+	Refuses("list element", "list<id>", ParamInput::Array({S("1"), S("x")}), "E_PARAM_TYPE", "element 2");
+	Refuses("list null element", "list<id>", ParamInput::Array({ParamInput::Null()}), "E_PARAM_TYPE", "element 1");
 	Refuses("list nested", "list<id>", ParamInput::Array({ParamInput::Array({})}));
-	Refuses("list scalar", "list<id>", S("1"), "E_PARAM_TYPE", "ожидается список");
+	Refuses("list scalar", "list<id>", S("1"), "E_PARAM_TYPE", "expected a list");
 	Refuses("list element too long", "list<string>", ParamInput::Array({S(std::string(4001, 'x'))}), "E_PARAM_TOO_LONG");
 	std::vector<ParamInput> many(MAX_LIST_ELEMENTS + 1, N("1"));
 	Refuses("list too many", "list<integer>", ParamInput::Array(many), "E_PARAM_TOO_LONG");

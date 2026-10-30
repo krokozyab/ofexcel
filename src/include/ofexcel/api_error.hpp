@@ -15,7 +15,7 @@ namespace ofexcel {
 
 class ApiError : public std::runtime_error {
 public:
-	//! `message` is shown to the user, so it is in Russian.
+	//! `message` is shown to the user, so it is in English.
 	ApiError(std::string code_p, int status_p, const std::string &message)
 	    : std::runtime_error(message), code(std::move(code_p)), status(status_p) {
 	}

@@ -64,13 +64,13 @@ std::string QexcelHome() {
 #ifdef _WIN32
 	const auto local_app_data = EnvironmentVariable(L"LOCALAPPDATA");
 	if (local_app_data.empty()) {
-		throw std::runtime_error("Не задана переменная окружения LOCALAPPDATA: не найти каталог QExcel");
+		throw std::runtime_error("The LOCALAPPDATA environment variable is not set: cannot find the QExcel folder");
 	}
 	return JoinPath(local_app_data, "QExcel");
 #else
 	const auto home = EnvironmentVariable("HOME");
 	if (home.empty()) {
-		throw std::runtime_error("Не задана переменная окружения HOME: не найти каталог QExcel");
+		throw std::runtime_error("The HOME environment variable is not set: cannot find the QExcel folder");
 	}
 #ifdef __APPLE__
 	return JoinPath(home, "Library/Application Support/QExcel");
@@ -92,7 +92,7 @@ std::string DefaultProjectsDir() {
 	const auto home = EnvironmentVariable("HOME");
 #endif
 	if (home.empty()) {
-		throw std::runtime_error("Не найден домашний каталог пользователя: не найти каталог проектов QExcel");
+		throw std::runtime_error("The user's home folder was not found: cannot find the QExcel projects folder");
 	}
 	return JoinPath(JoinPath(home, "QExcel"), "projects");
 }

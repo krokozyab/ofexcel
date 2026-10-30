@@ -64,7 +64,7 @@ std::string TlsDirSetting(ClientContext &context) {
 	try {
 		return DefaultTlsDir();
 	} catch (const std::exception &error) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; задайте SET ofexcel_tls_dir", error.what());
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; use SET ofexcel_tls_dir", error.what());
 	}
 }
 
@@ -77,7 +77,7 @@ std::string ProjectsDirSetting(ClientContext &context) {
 	try {
 		return DefaultProjectsDir();
 	} catch (const std::exception &error) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; задайте SET ofexcel_projects_dir", error.what());
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; use SET ofexcel_projects_dir", error.what());
 	}
 }
 
@@ -99,18 +99,18 @@ ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override)
 		options.guard.hosted_origin = NormalizeHostedOrigin(configured_origin);
 		if (options.guard.hosted_origin.empty()) {
 			throw duckdb::InvalidInputException(
-			    "E_BAD_REQUEST: ofexcel_hosted_origin должен быть origin вида https://host[:port] без пути, а сейчас "
-			    "'%s'. Например: SET ofexcel_hosted_origin = 'https://intranet.example.com'",
+			    "E_BAD_REQUEST: ofexcel_hosted_origin must be an origin like https://host[:port] with no path, not "
+			    "'%s'. For example: SET ofexcel_hosted_origin = 'https://intranet.example.com'",
 			    configured_origin);
 		}
 	} else {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_profile должен быть 'hosted' или 'local', а не '%s'",
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_profile must be 'hosted' or 'local', not '%s'",
 		                                    profile);
 	}
 
 	const auto port = port_override >= 0 ? port_override : IntegerSetting(context, "ofexcel_port", DEFAULT_PORT);
 	if (port < 0 || port > 65535) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: порт должен быть от 0 до 65535, а не %lld",
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: the port must be from 0 to 65535, not %lld",
 		                                    static_cast<long long>(port));
 	}
 	options.guard.port = static_cast<int>(port);
@@ -270,7 +270,7 @@ std::vector<std::string> StringList(TableFunctionBindInput &input, const char *n
 	}
 	for (const auto &child : duckdb::ListValue::GetChildren(entry->second)) {
 		if (child.IsNull()) {
-			throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_validate: в %s не может быть NULL", name);
+			throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_validate: %s cannot contain NULL", name);
 		}
 		strings.push_back(child.ToString());
 	}
@@ -281,7 +281,7 @@ duckdb::unique_ptr<FunctionData> ValidateBind(ClientContext &, TableFunctionBind
                                               duckdb::vector<LogicalType> &return_types,
                                               duckdb::vector<Identifier> &names) {
 	if (input.inputs.empty() || input.inputs[0].IsNull()) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_validate: текст SQL не может быть NULL");
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_validate: the SQL text cannot be NULL");
 	}
 	auto bind_data = duckdb::make_uniq<ValidateBindData>();
 	bind_data->sql = input.inputs[0].ToString();
@@ -320,7 +320,7 @@ duckdb::unique_ptr<FunctionData> SetEnvironmentBind(ClientContext &, TableFuncti
                                                     duckdb::vector<Identifier> &names) {
 	if (input.inputs.size() != 2 || input.inputs[0].IsNull() || input.inputs[1].IsNull()) {
 		throw duckdb::InvalidInputException(
-		    "E_BAD_REQUEST: ofexcel_set_environment(name, environment): имя и окружение не могут быть NULL");
+		    "E_BAD_REQUEST: ofexcel_set_environment(name, environment): name and environment cannot be NULL");
 	}
 	auto bind_data = duckdb::make_uniq<SetEnvironmentBindData>();
 	bind_data->name = input.inputs[0].ToString();
@@ -436,7 +436,7 @@ ParamInput ParamInputFromValue(const Value &value) {
 duckdb::unique_ptr<FunctionData> RunBind(ClientContext &, TableFunctionBindInput &input,
                                          duckdb::vector<LogicalType> &return_types, duckdb::vector<Identifier> &names) {
 	if (input.inputs.empty() || input.inputs[0].IsNull()) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_run: имя запроса не может быть NULL");
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_run: the query name cannot be NULL");
 	}
 	auto bind_data = duckdb::make_uniq<RunBindData>();
 	bind_data->query_id = input.inputs[0].ToString();
@@ -449,7 +449,7 @@ duckdb::unique_ptr<FunctionData> RunBind(ClientContext &, TableFunctionBindInput
 		const auto &value = params->second;
 		if (value.type().id() != duckdb::LogicalTypeId::STRUCT) {
 			throw duckdb::InvalidInputException(
-			    "E_BAD_REQUEST: ofexcel_run: params — структура, например params := {'period': '2026-01'}");
+			    "E_BAD_REQUEST: ofexcel_run: params must be a struct, for example params := {'period': '2026-01'}");
 		}
 		const auto &children = duckdb::StructValue::GetChildren(value);
 		for (idx_t i = 0; i < children.size(); i++) {
@@ -470,7 +470,7 @@ duckdb::unique_ptr<GlobalTableFunctionState> RunInit(ClientContext &context, Tab
 	duckdb::Connection connection(*context.db);
 	RunRequest request;
 	if (!FindQuery(connection, bind_data.query_id, QueryScope(), request.definition)) {
-		throw duckdb::InvalidInputException("E_NOT_FOUND: нет запроса %s", bind_data.query_id);
+		throw duckdb::InvalidInputException("E_NOT_FOUND: no query %s", bind_data.query_id);
 	}
 	request.connection = bind_data.connection;
 	request.params = bind_data.params;

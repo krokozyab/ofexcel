@@ -33,7 +33,7 @@ struct RouteContext {
 void SendJson(httplib::Response &response, int status, const std::string &body);
 
 //! Sends ErrorBody(code, message) with `status`. `message` is shown to the user,
-//! so it is written in Russian (CONTRACTS.md §8.1).
+//! so it is written in English (CONTRACTS.md §8.1).
 void SendError(httplib::Response &response, int status, const std::string &code, const std::string &message);
 
 //! An ApiError as its status and error body, details included.

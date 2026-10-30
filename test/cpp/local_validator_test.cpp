@@ -32,8 +32,8 @@ void Broken(const char *id, const std::string &sql, const char *rule, const std:
 	const auto verdict = ValidateLocalSql(sql, Scope());
 	if (verdict.ok || verdict.code != "E_VALIDATION" || verdict.rule != rule ||
 	    verdict.fragment.find(fragment) == std::string::npos || verdict.message.find(rule) == std::string::npos) {
-		std::cerr << id << ": " << sql << "\n    expected " << rule << " «" << fragment << "», got "
-		          << (verdict.ok ? "OK" : verdict.code + " " + verdict.rule + " «" + verdict.fragment + "» " + verdict.message)
+		std::cerr << id << ": " << sql << "\n    expected " << rule << " \"" << fragment << "\", got "
+		          << (verdict.ok ? "OK" : verdict.code + " " + verdict.rule + " \"" + verdict.fragment + "\" " + verdict.message)
 		          << "\n";
 		failures++;
 	}

@@ -61,15 +61,15 @@
 				body: JSON.stringify(report, null, 2),
 			});
 			if (!response.ok) {
-				log(`отчёт не сохранён: HTTP ${response.status}`);
+				log(`report not saved: HTTP ${response.status}`);
 			}
 		} catch (error) {
-			log(`отчёт не сохранён: ${error.message}`);
+			log(`report not saved: ${error.message}`);
 		}
 	}
 
 	async function record(name, experiment) {
-		status(`Выполняется: ${name}…`);
+		status(`Running: ${name}…`);
 		log(`▶ ${name}`);
 		const started = performance.now();
 		let result;
@@ -82,8 +82,8 @@
 		result = Object.assign({ name, at: new Date().toISOString(), ms: round(performance.now() - started) }, result);
 		report.runs.push(result);
 		await saveReport();
-		log(`${result.ok ? '✔' : '✖'} ${name} (${result.ms} мс)`);
-		status(`Готово: ${name}`);
+		log(`${result.ok ? '✔' : '✖'} ${name} (${result.ms} ms)`);
+		status(`Done: ${name}`);
 		return result;
 	}
 
@@ -111,7 +111,7 @@
 			const direct = await probeFetch(`${daemon()}/v1/health`);
 			activeBase = direct.ok ? daemon() : `${location.origin}/daemon`;
 			report.dataPath = activeBase;
-			log(`данные идут через ${activeBase}`);
+			log(`data goes through ${activeBase}`);
 		}
 		return activeBase;
 	}
@@ -640,7 +640,7 @@
 			button.addEventListener('click', () => run([button.dataset.run]));
 		});
 		byId('run-all').addEventListener('click', () => run(RUN_ALL));
-		status(`Готово к работе. Сессия ${session}`);
+		status(`Ready. Session ${session}`);
 		log(`runtime started ${runtime.startedAt}; page loaded ${report.pageLoadedAt}`);
 		saveReport();
 	});

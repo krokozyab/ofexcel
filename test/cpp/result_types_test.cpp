@@ -123,7 +123,7 @@ void TestOracleVectors() {
 		const auto inference = Infer("VENDOR_ID", {"12", "x"}, "integer");
 		Check("T15", !inference.ok && inference.code == "E_TYPE_DECLARED_MISMATCH" && inference.row == 2 &&
 		                 inference.value == "x" && inference.message.find("VENDOR_ID") != std::string::npos &&
-		                 inference.message.find("строке 2") != std::string::npos,
+		                 inference.message.find("in row 2") != std::string::npos,
 		      "expected E_TYPE_DECLARED_MISMATCH on row 2 for x, got " + inference.code + " " + inference.message);
 	}
 	ExpectType("T16", Infer("AMOUNT", {"", "5", ""}), "integer", false, {"", "5", ""}, {"∅", "5", "∅"});
@@ -213,7 +213,8 @@ void ExpectCell(const char *id, const char *type, const char *text, JsonCell::Ki
 		break;
 	}
 	Check(id, cell.kind == kind && actual == expected && cell.non_finite == non_finite,
-	      "got «" + actual + "» of kind " + std::to_string(static_cast<int>(cell.kind)) + ", expected «" + expected + "»");
+	      "got \"" + actual + "\" of kind " + std::to_string(static_cast<int>(cell.kind)) + ", expected \"" + expected +
+	          "\"");
 }
 
 void TestJsonVectors() {

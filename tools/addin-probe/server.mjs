@@ -189,7 +189,7 @@ function proxyToDaemon(request, response, url) {
 			headers[name] = request.headers[name];
 		}
 	}
-	// The daemon speaks HTTPS only (DECISIONS.md Р6); start.sh gives it a CA of its own in state/tls.
+	// The daemon speaks HTTPS only (DECISIONS.md R6); start.sh gives it a CA of its own in state/tls.
 	const upstream = https.request(
 		{ host: '127.0.0.1', port: DAEMON_PORT, method: request.method, path: url.pathname.slice('/daemon'.length) + url.search, headers,
 		  ca: fs.readFileSync(path.join(STATE_DIR, 'tls', 'ca.crt')) },

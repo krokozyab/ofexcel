@@ -86,16 +86,16 @@ bool IsEnvironment(const std::string &environment) {
 
 FusionConnection CheckConnection(FusionConnection definition) {
 	if (!IsIdentifier(definition.name)) {
-		throw BadRequest("Имя подключения должно соответствовать ^[a-z][a-z0-9_]{0,62}$, например fusion_test");
+		throw BadRequest("The connection name must match ^[a-z][a-z0-9_]{0,62}$, for example fusion_test");
 	}
 	if (!IsEnvironment(definition.environment)) {
-		throw BadRequest("Окружение подключения должно быть DEV, TEST или PROD");
+		throw BadRequest("The connection environment must be DEV, TEST or PROD");
 	}
 	// The same rules as the hosted origin: https, a host, an optional port, no
 	// path. ofquack adds the service path itself.
 	const auto endpoint = NormalizeHostedOrigin(definition.endpoint);
 	if (endpoint.empty()) {
-		throw BadRequest("Адрес Fusion должен иметь вид https://host без пути, например "
+		throw BadRequest("The Fusion address must look like https://host with no path, for example "
 		                 "https://fa-xxxx.oraclecloud.com");
 	}
 	definition.endpoint = endpoint;
@@ -107,7 +107,7 @@ FusionConnection CheckConnection(FusionConnection definition) {
 		}
 	}
 	if (path.empty() || path[0] != '/' || path.size() > MAX_REPORT_PATH_BYTES || !printable) {
-		throw BadRequest("Путь отчёта должен быть абсолютным путём в каталоге BI Publisher, например "
+		throw BadRequest("The report path must be an absolute path in the BI Publisher catalog, for example "
 		                 "/Custom/Financials/RP_ARB.xdo");
 	}
 	return definition;
@@ -139,7 +139,7 @@ FusionConnection CreateConnection(duckdb::Connection &connection, const FusionCo
 	std::lock_guard<std::mutex> guard(ConnectionsLock());
 	return InTransaction(connection, [&]() {
 		if (HasRow(connection, checked.name) || FindSecret(connection, checked.name)) {
-			throw ApiError("E_CONFLICT", 409, "Подключение " + checked.name + " уже есть");
+			throw ApiError("E_CONFLICT", 409, "Connection " + checked.name + " already exists");
 		}
 		CreateBrowserSecret(connection, checked);
 		QueryRows(connection, "INSERT INTO meta.connections VALUES ($1, $2, $3, $4, $5)",
@@ -153,7 +153,7 @@ FusionConnection CreateConnection(duckdb::Connection &connection, const FusionCo
 FusionConnection SetConnectionEnvironment(duckdb::Connection &connection, const std::string &name,
                                           const std::string &environment) {
 	if (!IsEnvironment(environment)) {
-		throw BadRequest("Окружение подключения должно быть DEV, TEST или PROD");
+		throw BadRequest("The connection environment must be DEV, TEST or PROD");
 	}
 	std::lock_guard<std::mutex> guard(ConnectionsLock());
 	return InTransaction(connection, [&]() {
@@ -170,7 +170,7 @@ FusionConnection SetConnectionEnvironment(duckdb::Connection &connection, const 
 		        ? dynamic_cast<const duckdb::KeyValueSecret *>(entry->secret.get())
 		        : nullptr;
 		if (!secret) {
-			throw ApiError("E_NOT_FOUND", 404, "Нет подключения " + name);
+			throw ApiError("E_NOT_FOUND", 404, "No connection " + name);
 		}
 		FusionConnection definition;
 		definition.name = name;

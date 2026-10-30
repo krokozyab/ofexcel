@@ -207,7 +207,7 @@ int UninstallCert(const Arguments &arguments) {
 		if (fs::remove(fs::u8path(path), error)) {
 			std::cout << "removed " << path << "\n";
 		} else if (error) {
-			throw std::runtime_error("Не удалось удалить " + path + ": " + error.message());
+			throw std::runtime_error("Cannot remove " + path + ": " + error.message());
 		}
 	}
 	// Only if nothing else is left in it.

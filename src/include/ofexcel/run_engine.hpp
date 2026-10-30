@@ -3,7 +3,7 @@
 // Oracle runs (CONTRACTS.md §5.1, §5.2, §5.4, §6.3, §6.4, §14.1; TASKS.md C3):
 // from the rendered SQL to a new version of the dataset instance. A run reads
 // from ofquack on a connection of its own, the one cancellation and the
-// timeout interrupt (DECISIONS.md Р3), and writes on another.
+// timeout interrupt (DECISIONS.md R3), and writes on another.
 
 #include "duckdb.hpp"
 #include "ofexcel/param_values.hpp"
@@ -20,7 +20,7 @@ namespace ofexcel {
 
 //! Rows per BI Publisher request (§5.1).
 constexpr int64_t DEFAULT_FETCH_SIZE = 10000;
-//! Rows a run keeps without @max_rows (§5.4, DECISIONS.md Р4).
+//! Rows a run keeps without @max_rows (§5.4, DECISIONS.md R4).
 constexpr int64_t DEFAULT_MAX_ROWS = 1000000;
 //! ofexcel_run_timeout's default, in seconds (§5.4).
 constexpr int64_t DEFAULT_RUN_TIMEOUT_SECONDS = 1800;

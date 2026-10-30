@@ -64,12 +64,12 @@ bool Lex(const std::string &text, std::vector<std::string> &tokens, std::string 
 			tokens.emplace_back(1, c);
 			i++;
 		} else {
-			error = std::string("недопустимый символ «") + c + "» в типе «" + text + "»";
+			error = std::string("invalid character \"") + c + "\" in type \"" + text + "\"";
 			return false;
 		}
 	}
 	if (tokens.empty()) {
-		error = "не указан тип";
+		error = "type is missing";
 		return false;
 	}
 	return true;
@@ -113,11 +113,11 @@ bool ParseSmallInt(TokenCursor &cursor, int &value) {
 bool ParseDecimalArguments(TokenCursor &cursor, int &precision, int &scale, std::string &error) {
 	if (!cursor.Take("(") || !ParseSmallInt(cursor, precision) || !cursor.Take(",") || !ParseSmallInt(cursor, scale) ||
 	    !cursor.Take(")")) {
-		error = "decimal пишется как decimal(p,s), например decimal(18,2)";
+		error = "decimal is written as decimal(p,s), for example decimal(18,2)";
 		return false;
 	}
 	if (precision < 1 || precision > 38 || scale < 0 || scale > precision) {
-		error = "в decimal(p,s) должно быть 1 ≤ p ≤ 38 и 0 ≤ s ≤ p, а не decimal(" + std::to_string(precision) + "," +
+		error = "decimal(p,s) requires 1 ≤ p ≤ 38 and 0 ≤ s ≤ p, not decimal(" + std::to_string(precision) + "," +
 		        std::to_string(scale) + ")";
 		return false;
 	}
@@ -145,25 +145,25 @@ bool ParseParamTypeAt(TokenCursor &cursor, ParamType &type, bool scalar_only, st
 	}
 	if (word == "enum" || word == "list") {
 		if (scalar_only) {
-			error = "внутри list<…> допускается только скалярный тип: enum и list в list не поддерживаются";
+			error = "only a scalar type is allowed inside list<…>: enum and list in list are not supported";
 			return false;
 		}
 	}
 	if (word == "enum") {
 		type.kind = ParamKind::ENUM;
 		if (!cursor.Take("(")) {
-			error = "enum пишется как enum(A,B,…)";
+			error = "enum is written as enum(A,B,…)";
 			return false;
 		}
 		do {
 			const auto &variant = cursor.Peek();
 			if (!IsWord(variant)) {
-				error = "варианты enum — слова из букв, цифр и _, через запятую";
+				error = "enum variants are words of letters, digits and _, separated by commas";
 				return false;
 			}
 			for (const auto &existing : type.variants) {
 				if (LowerAscii(existing) == LowerAscii(variant)) {
-					error = "вариант enum «" + variant + "» повторяется (варианты сравниваются без учёта регистра)";
+					error = "enum variant \"" + variant + "\" is repeated (variants are compared case-insensitively)";
 					return false;
 				}
 			}
@@ -171,7 +171,7 @@ bool ParseParamTypeAt(TokenCursor &cursor, ParamType &type, bool scalar_only, st
 			cursor.at++;
 		} while (cursor.Take(","));
 		if (!cursor.Take(")")) {
-			error = "enum пишется как enum(A,B,…)";
+			error = "enum is written as enum(A,B,…)";
 			return false;
 		}
 		return true;
@@ -180,20 +180,20 @@ bool ParseParamTypeAt(TokenCursor &cursor, ParamType &type, bool scalar_only, st
 		type.kind = ParamKind::LIST;
 		auto element = std::make_shared<ParamType>();
 		if (!cursor.Take("<") || cursor.Done()) {
-			error = "list пишется как list<тип>, например list<id>";
+			error = "list is written as list<type>, for example list<id>";
 			return false;
 		}
 		if (!ParseParamTypeAt(cursor, *element, true, error)) {
 			return false;
 		}
 		if (!cursor.Take(">")) {
-			error = "list пишется как list<тип>, например list<id>";
+			error = "list is written as list<type>, for example list<id>";
 			return false;
 		}
 		type.element = element;
 		return true;
 	}
-	error = "неизвестный тип «" + word + "»";
+	error = "unknown type \"" + word + "\"";
 	return false;
 }
 
@@ -245,7 +245,7 @@ bool CanonicalTimestamp(const std::string &text, std::string &canonical) {
 
 bool CanonicalDecimal(const ParamType &type, const std::string &text, std::string &canonical, std::string &error) {
 	if (!IsPlainDecimal(text)) {
-		error = "«" + text + "» — не десятичное число";
+		error = "\"" + text + "\" is not a decimal number";
 		return false;
 	}
 	canonical = CanonicalDecimalText(text);
@@ -256,8 +256,9 @@ bool CanonicalDecimal(const ParamType &type, const std::string &text, std::strin
 	// As DECIMAL(p,s) in SQL: p-s digits before the point, s after it.
 	if (integer_digits > static_cast<size_t>(type.precision - type.scale) ||
 	    fraction_digits > static_cast<size_t>(type.scale)) {
-		error = "«" + text + "» не помещается в " + type.ToString() + ": до точки не больше " +
-		        std::to_string(type.precision - type.scale) + " цифр, после — не больше " + std::to_string(type.scale);
+		error = "\"" + text + "\" does not fit in " + type.ToString() + ": at most " +
+		        std::to_string(type.precision - type.scale) + " digits before the point and " +
+		        std::to_string(type.scale) + " after it";
 		return false;
 	}
 	return true;
@@ -265,13 +266,13 @@ bool CanonicalDecimal(const ParamType &type, const std::string &text, std::strin
 
 bool CanonicalNumber(const std::string &text, std::string &canonical, std::string &error) {
 	if (!IsPlainDecimal(text)) {
-		error = "«" + text + "» — не число в десятичной записи (экспонента не допускается)";
+		error = "\"" + text + "\" is not a number in decimal notation (no exponent allowed)";
 		return false;
 	}
 	// strtod reads the C locale's decimal point; the daemon never changes the locale.
 	const double value = std::strtod(text.c_str(), nullptr);
 	if (!std::isfinite(value)) {
-		error = "«" + text + "» вне диапазона чисел double";
+		error = "\"" + text + "\" is outside the range of double";
 		return false;
 	}
 	canonical = ShortestDouble(value);
@@ -280,17 +281,17 @@ bool CanonicalNumber(const std::string &text, std::string &canonical, std::strin
 
 bool CanonicalString(const std::string &text, std::string &error) {
 	if (text.size() > MAX_STRING_BYTES) {
-		error = "строка длиннее " + std::to_string(MAX_STRING_BYTES) + " байт UTF-8";
+		error = "string is longer than " + std::to_string(MAX_STRING_BYTES) + " bytes of UTF-8";
 		return false;
 	}
 	if (!IsValidUtf8(text)) {
-		error = "строка не в UTF-8";
+		error = "string is not valid UTF-8";
 		return false;
 	}
 	for (const char c : text) {
 		const auto byte = static_cast<unsigned char>(c);
 		if (byte < 0x20 && byte != '\t' && byte != '\n' && byte != '\r') {
-			error = "строка содержит управляющий символ U+00" + std::string(1, "0123456789ABCDEF"[byte >> 4]) +
+			error = "string contains control character U+00" + std::string(1, "0123456789ABCDEF"[byte >> 4]) +
 			        "0123456789ABCDEF"[byte & 0x0f];
 			return false;
 		}
@@ -404,7 +405,7 @@ bool ParseParamType(const std::string &text, ParamType &type, std::string &error
 		return false;
 	}
 	if (!cursor.Done()) {
-		error = "лишнее «" + cursor.Peek() + "» после типа " + type.ToString();
+		error = "unexpected \"" + cursor.Peek() + "\" after type " + type.ToString();
 		return false;
 	}
 	return true;
@@ -446,11 +447,11 @@ bool ParseColumnType(const std::string &text, ColumnType &type, std::string &err
 		known = true;
 	}
 	if (!known) {
-		error = "неизвестный тип колонки «" + word + "»";
+		error = "unknown column type \"" + word + "\"";
 		return false;
 	}
 	if (!cursor.Done()) {
-		error = "лишнее «" + cursor.Peek() + "» после типа " + type.ToString();
+		error = "unexpected \"" + cursor.Peek() + "\" after type " + type.ToString();
 		return false;
 	}
 	return true;
@@ -462,7 +463,7 @@ bool CanonicalizeText(const ParamType &type, const std::string &text, std::strin
 		const bool negative = !text.empty() && text[0] == '-';
 		const size_t from = negative ? 1 : 0;
 		if (!AllDigits(text, from) || text.size() - from > MAX_DIGITS) {
-			error = "«" + text + "» — не целое число";
+			error = "\"" + text + "\" is not an integer";
 			return false;
 		}
 		const auto digits = StripLeadingZeros(text.substr(from));
@@ -471,7 +472,7 @@ bool CanonicalizeText(const ParamType &type, const std::string &text, std::strin
 	}
 	case ParamKind::ID:
 		if (!AllDigits(text) || text.size() > MAX_DIGITS) {
-			error = "«" + text + "» — не идентификатор из цифр (до 38)";
+			error = "\"" + text + "\" is not an identifier of digits (up to 38)";
 			return false;
 		}
 		canonical = StripLeadingZeros(text);
@@ -488,14 +489,14 @@ bool CanonicalizeText(const ParamType &type, const std::string &text, std::strin
 		return true;
 	case ParamKind::DATE:
 		if (text.size() != 10 || !IsValidDate(text, 0)) {
-			error = "«" + text + "» — не существующая дата YYYY-MM-DD";
+			error = "\"" + text + "\" is not a valid date YYYY-MM-DD";
 			return false;
 		}
 		canonical = text;
 		return true;
 	case ParamKind::TIMESTAMP:
 		if (!CanonicalTimestamp(text, canonical)) {
-			error = "«" + text + "» — не время YYYY-MM-DD HH:MM:SS[.ffffff]";
+			error = "\"" + text + "\" is not a timestamp YYYY-MM-DD HH:MM:SS[.ffffff]";
 			return false;
 		}
 		return true;
@@ -509,7 +510,7 @@ bool CanonicalizeText(const ParamType &type, const std::string &text, std::strin
 			canonical = "false";
 			return true;
 		}
-		error = "«" + text + "» — не логическое значение (true/false, Y/N, 1/0)";
+		error = "\"" + text + "\" is not a boolean (true/false, Y/N, 1/0)";
 		return false;
 	}
 	case ParamKind::ENUM:
@@ -519,10 +520,10 @@ bool CanonicalizeText(const ParamType &type, const std::string &text, std::strin
 				return true;
 			}
 		}
-		error = "«" + text + "» — не из списка " + type.ToString();
+		error = "\"" + text + "\" is not one of " + type.ToString();
 		return false;
 	case ParamKind::LIST:
-		error = "list<…> не приводится как скалярное значение";
+		error = "list<…> cannot be converted as a scalar value";
 		return false;
 	}
 	return false;

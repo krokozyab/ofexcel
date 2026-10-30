@@ -154,8 +154,8 @@ struct Daemon {
 //! The projects on disk before the daemon starts.
 void WriteProjects() {
 	WriteFile(ProjectFile("fin", "gl_balance.sql"),
-	          Query("gl_balance", 1, "-- @title: Остатки GL\n-- @param bu: integer = 204 | Бизнес-единица\n"
-	                                 "-- @param ids: list<id> = 1, 2\n-- @column ACCOUNT: id | Счёт\n-- @column AMT: decimal(18,2)\n",
+	          Query("gl_balance", 1, "-- @title: GL balances\n-- @param bu: integer = 204 | Business unit\n"
+	                                 "-- @param ids: list<id> = 1, 2\n-- @column ACCOUNT: id | Account\n-- @column AMT: decimal(18,2)\n",
 	                "SELECT account, amt FROM gl WHERE bu = :bu AND id IN :ids"));
 	WriteFile(ProjectFile("fin", "gl_balance_v2.sql"), Query("gl_balance", 2));
 	WriteFile(ProjectFile("fin", "broken.sql"), "-- @id: broken\n-- @engine: oracle\nSELECT 1 FROM dual\n");
@@ -191,12 +191,12 @@ void TestSummary(Daemon &daemon) {
 	                                      "WHERE source_ref = 'fin' AND version = 1");
 	CHECK(rows.At(0, 0).ToString() == ofexcel::DefinitionHash(v1));
 	CHECK(rows.At(0, 1).ToString() ==
-	      "{\"columns\":[{\"header\":\"Счёт\",\"name\":\"ACCOUNT\",\"type\":\"id\"},"
+	      "{\"columns\":[{\"header\":\"Account\",\"name\":\"ACCOUNT\",\"type\":\"id\"},"
 	      "{\"header\":null,\"name\":\"AMT\",\"type\":\"decimal(18,2)\"}],\"connection\":null,\"depends\":[],"
 	      "\"description\":null,\"engine\":\"oracle\",\"id\":\"gl_balance\",\"max_rows\":null,"
-	      "\"params\":[{\"default\":\"204\",\"description\":\"Бизнес-единица\",\"name\":\"bu\",\"type\":\"integer\"},"
+	      "\"params\":[{\"default\":\"204\",\"description\":\"Business unit\",\"name\":\"bu\",\"type\":\"integer\"},"
 	      "{\"default\":[\"1\",\"2\"],\"description\":null,\"name\":\"ids\",\"type\":\"list<id>\"}],"
-	      "\"title\":\"Остатки GL\",\"version\":1}");
+	      "\"title\":\"GL balances\",\"version\":1}");
 
 	// QuerySummary of version 1, read by its project.
 	const auto hash = ofexcel::DefinitionHash(v1);
@@ -204,10 +204,10 @@ void TestSummary(Daemon &daemon) {
 	CheckStatus(list, 200);
 	CHECK(Contains(list->body,
 	               "{\"id\":\"gl_balance\",\"hash\":\"" + hash +
-	                   "\",\"version\":1,\"engine\":\"oracle\",\"title\":\"Остатки GL\","
-	                   "\"params\":[{\"name\":\"bu\",\"type\":\"integer\",\"default\":\"204\",\"description\":\"Бизнес-"
-	                   "единица\"},{\"name\":\"ids\",\"type\":\"list<id>\",\"default\":\"1, 2\"}],"
-	                   "\"columns\":[{\"name\":\"ACCOUNT\",\"header\":\"Счёт\",\"type\":\"id\"},"
+	                   "\",\"version\":1,\"engine\":\"oracle\",\"title\":\"GL balances\","
+	                   "\"params\":[{\"name\":\"bu\",\"type\":\"integer\",\"default\":\"204\",\"description\":\""
+	                   "Business unit\"},{\"name\":\"ids\",\"type\":\"list<id>\",\"default\":\"1, 2\"}],"
+	                   "\"columns\":[{\"name\":\"ACCOUNT\",\"header\":\"Account\",\"type\":\"id\"},"
 	                   "{\"name\":\"AMT\",\"header\":\"AMT\",\"type\":\"decimal(18,2)\"}],"
 	                   "\"source\":{\"kind\":\"project\",\"ref\":\"fin\"},\"trusted\":false}"));
 	// Projects come before examples; nothing from a workbook without ?workbook.
@@ -313,23 +313,23 @@ void TestWorkbookSetIsReplaced(Daemon &daemon) {
 
 void TestSaveFromEditor(Daemon &daemon) {
 	Api api(daemon.port);
-	const auto text = Query("new_query", 1, "-- @title: Новый\n");
+	const auto text = Query("new_query", 1, "-- @title: New\n");
 	auto response = api.Put("/v1/queries/new_query", "{\"project\":\"fin\",\"text\":" + JsonString(text) + "}");
 	CheckStatus(response, 200);
 	CHECK(Contains(response->body, "\"id\":\"new_query\""));
 	CHECK(Contains(response->body, "\"source\":{\"kind\":\"project\",\"ref\":\"fin\"}"));
 	CHECK(ReadFile(ProjectFile("fin", "new_query.sql")) == text);
-	CHECK(Contains(api.Get("/v1/queries/new_query")->body, "\"title\":\"Новый\""));
+	CHECK(Contains(api.Get("/v1/queries/new_query")->body, "\"title\":\"New\""));
 
 	// A new version replaces the file, and with it the old definition.
-	const auto text2 = Query("new_query", 2, "-- @title: Новый 2\n");
+	const auto text2 = Query("new_query", 2, "-- @title: New 2\n");
 	CheckStatus(api.Put("/v1/queries/new_query", "{\"project\":\"fin\",\"text\":" + JsonString(text2) + "}"), 200);
 	CHECK(RunOk(*daemon.connection, "SELECT version FROM meta.query_definitions WHERE query_id = 'new_query'").rows.size() ==
 	      1);
 	// A project that does not exist yet is created.
-	CheckStatus(api.Put("/v1/queries/fresh", "{\"project\":\"Новый проект\",\"text\":" + JsonString(Query("fresh", 1)) + "}"),
+	CheckStatus(api.Put("/v1/queries/fresh", "{\"project\":\"Über project\",\"text\":" + JsonString(Query("fresh", 1)) + "}"),
 	            200);
-	CHECK(fs::exists(fs::u8path(ProjectFile("Новый проект", "fresh.sql"))));
+	CHECK(fs::exists(fs::u8path(ProjectFile("Über project", "fresh.sql"))));
 
 	// @id in the text must be the one in the path.
 	response = api.Put("/v1/queries/other_id", "{\"project\":\"fin\",\"text\":" + JsonString(Query("new_query", 3)) + "}");
@@ -344,7 +344,7 @@ void TestSaveFromEditor(Daemon &daemon) {
 	                                                  JsonString(Query("gl_balance", 2, "-- @title: clash\n")) + "}");
 	CheckStatus(response, 422, "E_QUERY_PARSE");
 	CHECK(!fs::exists(fs::u8path(ProjectFile("fin", "gl_balance.sql.tmp"))));
-	CHECK(Contains(ReadFile(ProjectFile("fin", "gl_balance.sql")), "Остатки GL"));
+	CHECK(Contains(ReadFile(ProjectFile("fin", "gl_balance.sql")), "GL balances"));
 
 	for (const auto *project : {"../escape", "a/b", ".hidden", "", "con:"}) {
 		CheckStatus(api.Put("/v1/queries/x", std::string("{\"project\":") + JsonString(project) + ",\"text\":" +
@@ -419,7 +419,7 @@ void TestReload(Daemon &daemon) {
 	                "fin/queries/new_query.sql|new_query|true|\n"
 	                "zz/queries/a.sql|twice|true|\n"
 	                "zz/queries/b.sql|twice|false|msg\n"
-	                "Новый проект/queries/fresh.sql|fresh|true|\n");
+	                "Über project/queries/fresh.sql|fresh|true|\n");
 	CHECK(Contains(rows.At(2, 3).ToString(), "@version"));
 	CheckStatus(Api(daemon.port).Get("/v1/queries/ap_open"), 404, "E_NOT_FOUND");
 	CheckStatus(Api(daemon.port).Get("/v1/queries/late"), 200);

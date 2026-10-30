@@ -97,16 +97,16 @@ void TestCanonicalParams() {
 	// Byte order: upper case before lower case, "_" (0x5F) between them,
 	// a prefix before its extensions, Cyrillic (0xD0…) after ASCII.
 	std::map<std::string, CanonicalValue> names;
-	for (const auto *name : {"b", "a_b", "ab", "B", "a", "\xD0\xB0" /* а */, "a_"}) {
+	for (const auto *name : {"b", "a_b", "ab", "B", "a", "\xD0\xB0" /* Cyrillic a */, "a_"}) {
 		names.emplace(name, CanonicalValue::Scalar("1"));
 	}
 	Expect("P4 key order", CanonicalParams(names),
 	       "{\"B\":\"1\",\"a\":\"1\",\"a_\":\"1\",\"a_b\":\"1\",\"ab\":\"1\",\"b\":\"1\",\"\xD0\xB0\":\"1\"}");
 
 	std::map<std::string, CanonicalValue> escaped;
-	escaped.emplace("s", CanonicalValue::Scalar("Иван \"И\" \\ / \t\n\r\b\f\x01\x1f\x7f"));
+	escaped.emplace("s", CanonicalValue::Scalar("Zoë \"Z\" \\ / \t\n\r\b\f\x01\x1f\x7f"));
 	Expect("P5 escaping", CanonicalParams(escaped),
-	       "{\"s\":\"Иван \\\"И\\\" \\\\ / \\t\\n\\r\\b\\f\\u0001\\u001f\x7f\"}");
+	       "{\"s\":\"Zoë \\\"Z\\\" \\\\ / \\t\\n\\r\\b\\f\\u0001\\u001f\x7f\"}");
 
 	std::map<std::string, CanonicalValue> lists;
 	lists.emplace("empty", CanonicalValue::List({}));

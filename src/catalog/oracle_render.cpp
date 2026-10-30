@@ -62,20 +62,20 @@ public:
 		while (at < text.size()) {
 			const char c = text[at];
 			if (c == '\'') {
-				if (!Quoted('\'', "строковый литерал")) {
-					return Fail(CODE_TOKENIZE, "строковый литерал не закрыт", error_code, error_message);
+				if (!Quoted('\'', "string literal")) {
+					return Fail(CODE_TOKENIZE, "unterminated string literal", error_code, error_message);
 				}
 				Significant();
 			} else if (c == '"') {
-				if (!Quoted('"', "идентификатор")) {
-					return Fail(CODE_TOKENIZE, "идентификатор в кавычках не закрыт", error_code, error_message);
+				if (!Quoted('"', "identifier")) {
+					return Fail(CODE_TOKENIZE, "unterminated quoted identifier", error_code, error_message);
 				}
 				Significant();
 			} else if (c == '-' && Next(1) == '-') {
 				LineComment();
 			} else if (c == '/' && Next(1) == '*') {
 				if (!BlockComment()) {
-					return Fail(CODE_TOKENIZE, "комментарий /* не закрыт", error_code, error_message);
+					return Fail(CODE_TOKENIZE, "unterminated /* comment", error_code, error_message);
 				}
 			} else if (c == ':') {
 				if (!Colon(error_code, error_message)) {
@@ -109,7 +109,7 @@ private:
 
 	bool Fail(const char *code, const std::string &message, std::string &error_code, std::string &error_message) const {
 		error_code = code;
-		error_message = "строка " + std::to_string(line) + ": " + message;
+		error_message = "line " + std::to_string(line) + ": " + message;
 		return false;
 	}
 
@@ -135,7 +135,7 @@ private:
 				const auto end = text.find("*/", i + 2);
 				if (end == std::string::npos) {
 					line = lines;
-					return Fail(CODE_TOKENIZE, "комментарий /* не закрыт", error_code, error_message);
+					return Fail(CODE_TOKENIZE, "unterminated /* comment", error_code, error_message);
 				}
 				for (size_t k = i; k < end; k++) {
 					lines += text[k] == '\n';
@@ -152,7 +152,7 @@ private:
 		const auto keyword = Upper(text.substr(i, end - i));
 		if (keyword != "SELECT" && keyword != "WITH") {
 			line = lines;
-			return Fail(CODE_NOT_SELECT, "запрос должен начинаться с SELECT или WITH", error_code, error_message);
+			return Fail(CODE_NOT_SELECT, "the query must start with SELECT or WITH", error_code, error_message);
 		}
 		return true;
 	}
@@ -184,7 +184,7 @@ private:
 		// `at` is on the quote; the prefix is already copied.
 		const char open = Next(1);
 		if (open == '\0' || std::isspace(static_cast<unsigned char>(open))) {
-			return Fail(CODE_TOKENIZE, "у q-литерала нет разделителя", error_code, error_message);
+			return Fail(CODE_TOKENIZE, "q-literal has no delimiter", error_code, error_message);
 		}
 		char close = open;
 		switch (open) {
@@ -216,7 +216,7 @@ private:
 			}
 			output += text[at++];
 		}
-		return Fail(CODE_TOKENIZE, "q-литерал не закрыт", error_code, error_message);
+		return Fail(CODE_TOKENIZE, "unterminated q-literal", error_code, error_message);
 	}
 
 	void LineComment() {
@@ -256,8 +256,8 @@ private:
 		}
 		if (n_prefix && Next(1) == '\'') {
 			output += text[at++];
-			if (!Quoted('\'', "строковый литерал")) {
-				return Fail(CODE_TOKENIZE, "строковый литерал не закрыт", error_code, error_message);
+			if (!Quoted('\'', "string literal")) {
+				return Fail(CODE_TOKENIZE, "unterminated string literal", error_code, error_message);
 			}
 			Significant();
 			return true;
@@ -280,8 +280,8 @@ private:
 			return true;
 		}
 		if (IsDigit(next)) {
-			return Fail(CODE_POSITIONAL, "позиционный параметр :" + std::string(1, next) +
-			                                 " не поддерживается; используйте :имя из @param",
+			return Fail(CODE_POSITIONAL, "positional parameter :" + std::string(1, next) +
+			                                 " is not supported; use :name from @param",
 			            error_code, error_message);
 		}
 		if (next == '_' && Next(2) == '_') {
@@ -289,8 +289,8 @@ private:
 			while (end < text.size() && IsWordChar(text[end])) {
 				end++;
 			}
-			return Fail(CODE_UNKNOWN, "имена параметров на __ зарезервированы: " + text.substr(at, end - at), error_code,
-			            error_message);
+			return Fail(CODE_UNKNOWN, "parameter names starting with __ are reserved: " + text.substr(at, end - at),
+			            error_code, error_message);
 		}
 		if (!IsLetter(next)) {
 			output += text[at++];
@@ -396,15 +396,15 @@ bool CheckText(Tokenizer &tokenizer, const std::vector<QueryParam> &params, std:
 		const auto *param = Find(params, reference.name);
 		if (!param) {
 			code = CODE_UNKNOWN;
-			message = "строка " + std::to_string(reference.line) + ": параметр :" + reference.name +
-			          " не объявлен в @param";
+			message = "line " + std::to_string(reference.line) + ": parameter :" + reference.name +
+			          " is not declared in @param";
 			return false;
 		}
 		const bool is_list = param->type.kind == ParamKind::LIST;
 		if (is_list && !reference.after_in) {
 			code = CODE_LIST_CONTEXT;
-			message = "строка " + std::to_string(reference.line) + ": список :" + reference.name +
-			          " можно подставить только сразу после IN";
+			message = "line " + std::to_string(reference.line) + ": list :" + reference.name +
+			          " can only be substituted right after IN";
 			return false;
 		}
 	}
@@ -419,7 +419,7 @@ std::vector<std::string> UnusedParamWarnings(const Tokenizer &tokenizer, const s
 			used = used || reference.name == param.name;
 		}
 		if (!used) {
-			warnings.push_back("параметр " + param.name + " объявлен, но не используется в тексте запроса");
+			warnings.push_back("parameter " + param.name + " is declared but not used in the query text");
 		}
 	}
 	return warnings;
@@ -486,10 +486,10 @@ RenderResult RenderOracle(const std::string &body, const std::vector<QueryParam>
 	for (const auto &input : inputs) {
 		const auto name = Lower(input.first);
 		if (!Find(params, name)) {
-			return Refused(CODE_UNKNOWN, "параметр " + input.first + " не объявлен в @param");
+			return Refused(CODE_UNKNOWN, "parameter " + input.first + " is not declared in @param");
 		}
 		if (!by_name.emplace(name, &input.second).second) {
-			return Refused(CODE_UNKNOWN, "параметр " + name + " передан дважды");
+			return Refused(CODE_UNKNOWN, "parameter " + name + " is passed twice");
 		}
 	}
 	RenderResult result;
@@ -499,7 +499,7 @@ RenderResult RenderOracle(const std::string &body, const std::vector<QueryParam>
 		const auto normalized = NormalizeParam(param.type, param.has_default ? &param.default_value : nullptr,
 		                                       input == by_name.end() ? missing : *input->second);
 		if (!normalized.ok) {
-			return Refused(normalized.code, "параметр " + param.name + ": " + normalized.message);
+			return Refused(normalized.code, "parameter " + param.name + ": " + normalized.message);
 		}
 		result.values[param.name] = normalized.value;
 	}

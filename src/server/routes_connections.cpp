@@ -26,7 +26,7 @@ constexpr const char *TEST_SQL = "SELECT 1 FROM dual";
 //! name reaches ofquack, whose own error would read as a Fusion failure.
 std::string ExistingConnection(duckdb::Connection &connection, const std::string &name) {
 	if (!IsIdentifier(name) || !FusionSecretExists(connection, name)) {
-		throw ApiError("E_NOT_FOUND", 404, "Нет подключения " + name);
+		throw ApiError("E_NOT_FOUND", 404, "No connection " + name);
 	}
 	return name;
 }
@@ -151,7 +151,8 @@ void LoginRoute(const httplib::Request &request, httplib::Response &response, du
 		// person is not signed in, which is E_FUSION_AUTH.
 		std::cerr << "ofexceld: sign-in to " << name << " failed: " << outcome.error.RawMessage() << std::endl;
 		const auto &raw = outcome.error.RawMessage();
-		throw ApiError("E_FUSION_AUTH", 409, "Вход в Oracle Fusion не завершён: " + raw.substr(0, raw.find('\n')));
+		throw ApiError("E_FUSION_AUTH", 409,
+		               "Signing in to Oracle Fusion did not finish: " + raw.substr(0, raw.find('\n')));
 	}
 	JsonObject body;
 	const auto &subject = outcome.rows.empty() ? duckdb::Value() : outcome.rows[0][0];

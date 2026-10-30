@@ -96,13 +96,13 @@ void WriteFileAtomically(const std::string &path, const std::string &content, in
 		std::ofstream file(FsPath(temporary), std::ios::binary | std::ios::trunc);
 		file.write(content.data(), static_cast<std::streamsize>(content.size()));
 		if (!file) {
-			throw TlsError(TlsError::Kind::IO, "Не удалось записать " + temporary);
+			throw TlsError(TlsError::Kind::IO, "Could not write " + temporary);
 		}
 	}
 #else
 	const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
 	if (fd < 0) {
-		throw TlsError(TlsError::Kind::IO, "Не удалось создать " + temporary);
+		throw TlsError(TlsError::Kind::IO, "Could not create " + temporary);
 	}
 	// open() honours the umask, and an existing file keeps its old mode.
 	bool written = ::fchmod(fd, static_cast<mode_t>(mode)) == 0;
@@ -115,14 +115,14 @@ void WriteFileAtomically(const std::string &path, const std::string &content, in
 	written = ::close(fd) == 0 && written;
 	if (!written) {
 		::unlink(temporary.c_str());
-		throw TlsError(TlsError::Kind::IO, "Не удалось записать " + temporary);
+		throw TlsError(TlsError::Kind::IO, "Could not write " + temporary);
 	}
 #endif
 	std::error_code error;
 	fs::rename(FsPath(temporary), FsPath(path), error);
 	if (error) {
 		fs::remove(FsPath(temporary), error);
-		throw TlsError(TlsError::Kind::IO, "Не удалось заменить " + path);
+		throw TlsError(TlsError::Kind::IO, "Could not replace " + path);
 	}
 }
 
@@ -130,7 +130,7 @@ void EnsureDirectory(const std::string &dir) {
 	std::error_code error;
 	const bool created = fs::create_directories(FsPath(dir), error);
 	if (error) {
-		throw TlsError(TlsError::Kind::IO, "Не удалось создать каталог " + dir + ": " + error.message());
+		throw TlsError(TlsError::Kind::IO, "Could not create directory " + dir + ": " + error.message());
 	}
 #ifndef _WIN32
 	// Only a directory made here: --dir may name one the user owns for other things.
@@ -145,7 +145,7 @@ void EnsureDirectory(const std::string &dir) {
 Key GenerateKey() {
 	Key key(EVP_PKEY_Q_keygen(nullptr, nullptr, "EC", "P-256"));
 	if (!key) {
-		FailOpenSsl("Не удалось создать ключ ECDSA P-256");
+		FailOpenSsl("Could not create an ECDSA P-256 key");
 	}
 	return key;
 }
@@ -153,7 +153,7 @@ Key GenerateKey() {
 std::string KeyToPem(EVP_PKEY *key) {
 	Bio bio(BIO_new(BIO_s_mem()));
 	if (!bio || PEM_write_bio_PrivateKey(bio.get(), key, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
-		FailOpenSsl("Не удалось записать ключ в PEM");
+		FailOpenSsl("Could not write the key as PEM");
 	}
 	char *data = nullptr;
 	const auto size = BIO_get_mem_data(bio.get(), &data);
@@ -163,7 +163,7 @@ std::string KeyToPem(EVP_PKEY *key) {
 std::string CertToPem(X509 *cert) {
 	Bio bio(BIO_new(BIO_s_mem()));
 	if (!bio || PEM_write_bio_X509(bio.get(), cert) != 1) {
-		FailOpenSsl("Не удалось записать сертификат в PEM");
+		FailOpenSsl("Could not write the certificate as PEM");
 	}
 	char *data = nullptr;
 	const auto size = BIO_get_mem_data(bio.get(), &data);
@@ -175,7 +175,7 @@ Cert ReadCert(const std::string &path) {
 	Bio bio(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())));
 	Cert cert(bio ? PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr) : nullptr);
 	if (!cert) {
-		FailOpenSsl("Файл " + path + " не является сертификатом PEM");
+		FailOpenSsl("File " + path + " is not a PEM certificate");
 	}
 	return cert;
 }
@@ -185,7 +185,7 @@ Key ReadKey(const std::string &path) {
 	Bio bio(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())));
 	Key key(bio ? PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr) : nullptr);
 	if (!key) {
-		FailOpenSsl("Файл " + path + " не является ключом PEM");
+		FailOpenSsl("File " + path + " is not a PEM key");
 	}
 	return key;
 }
@@ -194,19 +194,19 @@ Key ReadKey(const std::string &path) {
 void SetRandomSerial(X509 *cert) {
 	unsigned char bytes[16];
 	if (RAND_bytes(bytes, sizeof(bytes)) != 1) {
-		FailOpenSsl("Не удалось получить случайный серийный номер");
+		FailOpenSsl("Could not get a random serial number");
 	}
 	bytes[0] &= 0x7f;
 	std::unique_ptr<BIGNUM, BignumFree> number(BN_bin2bn(bytes, sizeof(bytes), nullptr));
 	if (!number || !BN_to_ASN1_INTEGER(number.get(), X509_get_serialNumber(cert))) {
-		FailOpenSsl("Не удалось задать серийный номер");
+		FailOpenSsl("Could not set the serial number");
 	}
 }
 
 void SetCommonName(X509_NAME *name, const char *common_name) {
 	if (X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_UTF8, reinterpret_cast<const unsigned char *>(common_name), -1,
 	                               -1, 0) != 1) {
-		FailOpenSsl("Не удалось задать имя сертификата");
+		FailOpenSsl("Could not set the certificate name");
 	}
 }
 
@@ -215,7 +215,7 @@ void SetCommonName(X509_NAME *name, const char *common_name) {
 void SetValidity(X509 *cert, int days) {
 	if (!X509_gmtime_adj(X509_getm_notBefore(cert), -300) ||
 	    !X509_time_adj_ex(X509_getm_notAfter(cert), days, 0, nullptr)) {
-		FailOpenSsl("Не удалось задать срок действия");
+		FailOpenSsl("Could not set the validity period");
 	}
 }
 
@@ -225,13 +225,13 @@ void AddExtension(X509 *cert, X509 *issuer, int nid, const char *value) {
 	X509V3_set_ctx(&context, issuer, cert, nullptr, nullptr, 0);
 	std::unique_ptr<X509_EXTENSION, ExtensionFree> extension(X509V3_EXT_nconf_nid(nullptr, &context, nid, value));
 	if (!extension || X509_add_ext(cert, extension.get(), -1) != 1) {
-		FailOpenSsl(std::string("Не удалось добавить расширение ") + OBJ_nid2sn(nid));
+		FailOpenSsl(std::string("Could not add extension ") + OBJ_nid2sn(nid));
 	}
 }
 
 void Sign(X509 *cert, EVP_PKEY *key) {
 	if (X509_sign(cert, key, EVP_sha256()) <= 0) {
-		FailOpenSsl("Не удалось подписать сертификат");
+		FailOpenSsl("Could not sign the certificate");
 	}
 }
 
@@ -239,7 +239,7 @@ void CreateCa(const TlsFiles &files) {
 	auto key = GenerateKey();
 	Cert cert(X509_new());
 	if (!cert || X509_set_version(cert.get(), X509_VERSION_3) != 1) {
-		FailOpenSsl("Не удалось создать сертификат CA");
+		FailOpenSsl("Could not create the CA certificate");
 	}
 	SetRandomSerial(cert.get());
 	SetCommonName(X509_get_subject_name(cert.get()), CA_COMMON_NAME);
@@ -269,25 +269,25 @@ struct Ca {
 
 Ca LoadCa(const TlsFiles &files) {
 	if (!Exists(files.ca_cert)) {
-		throw TlsError(TlsError::Kind::MISSING, "В каталоге " + files.dir +
-		                                            " нет локального CA QExcel: выполните ofexceld install-cert");
+		throw TlsError(TlsError::Kind::MISSING, "Directory " + files.dir +
+		                                            " has no QExcel local CA: run ofexceld install-cert");
 	}
 	const auto broken = [&](const std::string &what) {
-		return TlsError(TlsError::Kind::INVALID, what + ". Выполните ofexceld uninstall-cert, затем ofexceld install-cert");
+		return TlsError(TlsError::Kind::INVALID, what + ". Run ofexceld uninstall-cert, then ofexceld install-cert");
 	};
 	if (!Exists(files.ca_key)) {
-		throw broken("Нет ключа локального CA " + files.ca_key);
+		throw broken("No local CA key " + files.ca_key);
 	}
 	Ca ca {ReadCert(files.ca_cert), ReadKey(files.ca_key)};
 	if (X509_check_private_key(ca.cert.get(), ca.key.get()) != 1) {
 		ERR_clear_error();
-		throw broken("Ключ " + files.ca_key + " не подходит к сертификату " + files.ca_cert);
+		throw broken("Key " + files.ca_key + " does not match certificate " + files.ca_cert);
 	}
 	if (X509_check_ca(ca.cert.get()) < 1) {
-		throw broken("Сертификат " + files.ca_cert + " не является CA");
+		throw broken("Certificate " + files.ca_cert + " is not a CA");
 	}
 	if (X509_cmp_current_time(X509_get0_notAfter(ca.cert.get())) <= 0) {
-		throw broken("Срок действия локального CA истёк");
+		throw broken("The local CA has expired");
 	}
 	return ca;
 }
@@ -323,7 +323,7 @@ void IssueFromCa(const TlsFiles &files, const Ca &ca, int validity_days) {
 	auto key = GenerateKey();
 	Cert cert(X509_new());
 	if (!cert || X509_set_version(cert.get(), X509_VERSION_3) != 1) {
-		FailOpenSsl("Не удалось создать сертификат сервера");
+		FailOpenSsl("Could not create the server certificate");
 	}
 	SetRandomSerial(cert.get());
 	SetCommonName(X509_get_subject_name(cert.get()), "localhost");
@@ -364,7 +364,7 @@ TlsFiles TlsFilesIn(const std::string &dir) {
 std::string ReadFileBytes(const std::string &path) {
 	std::ifstream file(FsPath(path), std::ios::binary);
 	if (!file) {
-		throw TlsError(TlsError::Kind::MISSING, "Нет файла " + path);
+		throw TlsError(TlsError::Kind::MISSING, "No file " + path);
 	}
 	std::ostringstream content;
 	content << file.rdbuf();
@@ -407,7 +407,7 @@ void IssueServerCertificate(const TlsFiles &files, int validity_days) {
 std::string GenerateSessionToken() {
 	unsigned char bytes[32];
 	if (RAND_bytes(bytes, sizeof(bytes)) != 1) {
-		FailOpenSsl("Не удалось получить случайный токен сессии");
+		FailOpenSsl("Could not get a random session token");
 	}
 	static const char *const HEX = "0123456789abcdef";
 	std::string token;
@@ -423,7 +423,7 @@ CertificateIdentity ReadCertificateIdentity(const std::string &cert_path) {
 	unsigned char *der = nullptr;
 	const int size = i2d_X509(cert.get(), &der);
 	if (size <= 0) {
-		FailOpenSsl("Не удалось закодировать сертификат в DER");
+		FailOpenSsl("Could not encode the certificate as DER");
 	}
 	CertificateIdentity identity;
 	identity.der.assign(reinterpret_cast<const char *>(der), static_cast<size_t>(size));
@@ -432,7 +432,7 @@ CertificateIdentity ReadCertificateIdentity(const std::string &cert_path) {
 	unsigned char digest[EVP_MAX_MD_SIZE];
 	unsigned int digest_size = 0;
 	if (EVP_Digest(identity.der.data(), identity.der.size(), digest, &digest_size, EVP_sha1(), nullptr) != 1) {
-		FailOpenSsl("Не удалось вычислить отпечаток сертификата");
+		FailOpenSsl("Could not compute the certificate fingerprint");
 	}
 	static const char *const HEX = "0123456789ABCDEF";
 	for (unsigned int i = 0; i < digest_size; i++) {

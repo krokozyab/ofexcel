@@ -185,12 +185,12 @@ private:
 		if (run.timed_out) {
 			outcome.status = "failed";
 			outcome.error_code = "E_TIMEOUT";
-			outcome.error_message = "Запуск прерван: он шёл дольше " + std::to_string(plan.timeout_seconds) +
-			                        " с (ofexcel_run_timeout)";
+			outcome.error_message = "The run was stopped: it took longer than " +
+			                        std::to_string(plan.timeout_seconds) + " s (ofexcel_run_timeout)";
 		} else {
 			outcome.status = "cancelled";
 			outcome.error_code = "E_CANCELLED";
-			outcome.error_message = "Запуск отменён";
+			outcome.error_message = "The run was cancelled";
 		}
 	}
 
@@ -422,7 +422,7 @@ private:
 					case StoredValue::MISMATCH:
 						// Inference saw every value, so this is a bug, not bad data.
 						throw ApiError("E_INTERNAL", 500,
-						               "значение «" + text + "» не подходит к типу " + type.ToString() + " колонки " +
+						               "value \"" + text + "\" does not fit type " + type.ToString() + " of column " +
 						                   schema[column].name);
 					}
 				});
@@ -456,8 +456,8 @@ private:
 		}
 		if (schema.empty()) {
 			throw ApiError("E_EMPTY_UNKNOWN_SCHEMA", 500,
-			               "Запрос вернул 0 строк, а схема неизвестна. Объявите колонки через @column или выполните "
-			               "запрос с параметрами, при которых есть строки");
+			               "The query returned 0 rows and its schema is unknown. Declare the columns with @column, "
+			               "or run the query with parameters that return rows");
 		}
 		outcome.rows = 0;
 		outcome.truncated = false;
@@ -599,20 +599,20 @@ RunStart RunEngine::Start(duckdb::DatabaseInstance &db, const RunRequest &reques
 	const auto parsed = ParseQueryFile(definition.text);
 	if (!parsed.Ok()) {
 		throw ApiError(parsed.errors[0].code, 422,
-		               "Запрос " + definition.query_id + " не разбирается: " + parsed.errors[0].ToString());
+		               "Query " + definition.query_id + " cannot be parsed: " + parsed.errors[0].ToString());
 	}
 	const auto &header = parsed.header;
 	if (header.engine == Engine::LOCAL) {
-		throw ApiError("E_UNSUPPORTED", 422, "Local-запросы пока не выполняются: " + header.id);
+		throw ApiError("E_UNSUPPORTED", 422, "Local queries cannot be run yet: " + header.id);
 	}
 	const auto connection_name = request.connection.empty() ? header.connection : request.connection;
 	if (connection_name.empty()) {
 		throw ApiError("E_BAD_REQUEST", 422,
-		               "Не задано подключение: передайте connection или объявите @connection в запросе " + header.id);
+		               "No connection given: pass connection or declare @connection in query " + header.id);
 	}
 	duckdb::Connection connection(db);
 	if (!FusionSecretExists(connection, connection_name)) {
-		throw ApiError("E_NOT_FOUND", 404, "Нет подключения " + connection_name);
+		throw ApiError("E_NOT_FOUND", 404, "No connection " + connection_name);
 	}
 	const auto rendered = RenderOracle(header.body, header.params, request.params);
 	if (!rendered.ok) {
@@ -640,7 +640,8 @@ RunStart RunEngine::Start(duckdb::DatabaseInstance &db, const RunRequest &reques
 	if (going != by_instance.end()) {
 		if (request.force) {
 			throw ApiError("E_CONFLICT", 409,
-			               "Этот набор данных уже обновляется (запуск " + going->second + "), дождитесь его окончания");
+			               "This dataset is already being refreshed (run " + going->second +
+			                   "), wait for it to finish");
 		}
 		return {going->second, true};
 	}

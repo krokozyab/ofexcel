@@ -24,7 +24,7 @@ struct RenderResult {
 	//! Every declared parameter's canonical value, defaults applied: what
 	//! canonical_params is built from (§1.2).
 	std::map<std::string, CanonicalValue> values;
-	//! Russian: declared parameters the text never uses.
+	//! English: declared parameters the text never uses.
 	std::vector<std::string> warnings;
 
 	//! !ok: a code from §14 (E_SQL_TOKENIZE, E_SQL_NOT_SELECT, E_PARAM_*) and a
@@ -44,7 +44,7 @@ struct OracleTextCheck {
 	//! Lower case, unique, in the order they first appear; also when !ok, as
 	//! far as the tokenizer got.
 	std::vector<std::string> params_in_text;
-	//! Russian: declared parameters the text never uses.
+	//! English: declared parameters the text never uses.
 	std::vector<std::string> warnings;
 	//! !ok: E_SQL_TOKENIZE, E_SQL_NOT_SELECT, E_PARAM_POSITIONAL, E_PARAM_UNKNOWN
 	//! or E_PARAM_LIST_CONTEXT, and a message with the body's line.

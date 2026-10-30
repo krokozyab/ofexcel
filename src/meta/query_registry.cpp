@@ -60,7 +60,7 @@ struct Parsed {
 	std::string text;
 };
 
-//! The header's errors as "строка N: …; …", for a message on one line.
+//! The header's errors as "line N: …; …", for a message on one line.
 std::string JoinErrors(const std::vector<QueryParseError> &errors) {
 	std::string joined;
 	for (const auto &error : errors) {
@@ -84,8 +84,8 @@ JsonObject ErrorsJson(const std::vector<QueryParseError> &errors) {
 }
 
 std::string DuplicateMessage(const std::string &id, int32_t version) {
-	return "запрос " + id + " версии " + std::to_string(version) +
-	       " уже есть в этом источнике с другим текстом: повысьте @version у одного из них";
+	return "query " + id + " version " + std::to_string(version) +
+	       " already exists in this source with another text: raise @version in one of them";
 }
 
 void Insert(duckdb::Connection &connection, const char *kind, const std::string &ref, const Parsed &parsed) {
@@ -157,18 +157,18 @@ bool ReadFile(const fs::path &path, std::string &text, std::string &error) {
 	std::error_code size_error;
 	const auto size = fs::file_size(path, size_error);
 	if (size_error) {
-		error = "файл не прочитать: " + size_error.message();
+		error = "cannot read the file: " + size_error.message();
 		return false;
 	}
 	if (size > MAX_QUERY_FILE_BYTES) {
-		error = "файл больше " + std::to_string(MAX_QUERY_FILE_BYTES / 1024) + " КБ";
+		error = "the file is larger than " + std::to_string(MAX_QUERY_FILE_BYTES / 1024) + " KB";
 		return false;
 	}
 	std::ifstream file(path, std::ios::binary);
 	std::ostringstream content;
 	content << file.rdbuf();
 	if (!file) {
-		error = "файл не прочитать";
+		error = "cannot read the file";
 		return false;
 	}
 	text = content.str();
@@ -408,23 +408,25 @@ std::vector<ReloadEntry> ReloadProjects(duckdb::Connection &connection, const st
 QueryDefinition SaveProjectQuery(duckdb::Connection &connection, const std::string &projects_dir,
                                  const std::string &project, const std::string &query_id, const std::string &text) {
 	if (!IsIdentifier(query_id)) {
-		throw ApiError("E_BAD_REQUEST", 422, "Идентификатор запроса должен соответствовать ^[a-z][a-z0-9_]{0,62}$");
+		throw ApiError("E_BAD_REQUEST", 422, "The query id must match ^[a-z][a-z0-9_]{0,62}$");
 	}
 	if (!IsProjectName(project)) {
 		throw ApiError("E_BAD_REQUEST", 422,
-		               "Имя проекта должно годиться в имя каталога: без / \\ : * ? \" < > |, не с точки в начале");
+		               "The project name must be a valid folder name: no / \\ : * ? \" < > |, and no leading dot");
 	}
 	if (text.size() > MAX_QUERY_FILE_BYTES) {
-		throw ApiError("E_BAD_REQUEST", 422, "Текст запроса больше " + std::to_string(MAX_QUERY_FILE_BYTES / 1024) + " КБ");
+		throw ApiError("E_BAD_REQUEST", 422,
+		               "The query text is larger than " + std::to_string(MAX_QUERY_FILE_BYTES / 1024) + " KB");
 	}
 	auto result = ParseQueryFile(text);
 	if (!result.Ok()) {
-		throw ParseError("Заголовок запроса не разбирается: " + result.errors[0].ToString(), ErrorsJson(result.errors));
+		throw ParseError("The query header cannot be parsed: " + result.errors[0].ToString(),
+		                 ErrorsJson(result.errors));
 	}
 	if (result.header.id != query_id) {
 		QueryParseError mismatch;
 		mismatch.code = "E_QUERY_PARSE";
-		mismatch.message = "@id в тексте (" + result.header.id + ") не совпадает с идентификатором в адресе (" +
+		mismatch.message = "@id in the text (" + result.header.id + ") does not match the id in the address (" +
 		                   query_id + ")";
 		throw ParseError(mismatch.message, ErrorsJson({mismatch}));
 	}
@@ -446,7 +448,7 @@ QueryDefinition SaveProjectQuery(duckdb::Connection &connection, const std::stri
 		const auto other_result = ParseQueryFile(other);
 		if (other_result.Ok() && other_result.header.id == query_id &&
 		    other_result.header.version == result.header.version && DefinitionHash(other) != hash) {
-			throw ParseError(DuplicateMessage(query_id, result.header.version) + " (файл " +
+			throw ParseError(DuplicateMessage(query_id, result.header.version) + " (file " +
 			                     file.filename().u8string() + ")",
 			                 JsonObject());
 		}
@@ -454,7 +456,7 @@ QueryDefinition SaveProjectQuery(duckdb::Connection &connection, const std::stri
 	std::error_code error;
 	fs::create_directories(queries_dir, error);
 	if (error) {
-		throw ApiError("E_INTERNAL", 500, "Не создать каталог " + queries_dir.u8string() + ": " + error.message());
+		throw ApiError("E_INTERNAL", 500, "Cannot create folder " + queries_dir.u8string() + ": " + error.message());
 	}
 	// A temporary file renamed over the old one: the editor's file is never
 	// left half written.
@@ -464,13 +466,13 @@ QueryDefinition SaveProjectQuery(duckdb::Connection &connection, const std::stri
 		file << text;
 		file.close();
 		if (!file) {
-			throw ApiError("E_INTERNAL", 500, "Не записать файл " + temporary.u8string());
+			throw ApiError("E_INTERNAL", 500, "Cannot write file " + temporary.u8string());
 		}
 	}
 	fs::rename(temporary, target, error);
 	if (error) {
 		fs::remove(temporary, error);
-		throw ApiError("E_INTERNAL", 500, "Не записать файл " + target.u8string());
+		throw ApiError("E_INTERNAL", 500, "Cannot write file " + target.u8string());
 	}
 
 	std::vector<ReloadEntry> entries;
@@ -483,7 +485,7 @@ QueryDefinition SaveProjectQuery(duckdb::Connection &connection, const std::stri
 std::vector<QueryDefinition> RegisterWorkbook(duckdb::Connection &connection, const std::string &workbook_id,
                                               const std::vector<std::string> &texts) {
 	if (!IsUuidV4(workbook_id)) {
-		throw ApiError("E_BAD_REQUEST", 422, "Идентификатор книги должен быть UUID v4 в нижнем регистре");
+		throw ApiError("E_BAD_REQUEST", 422, "The workbook id must be a lowercase UUID v4");
 	}
 	std::vector<std::vector<QueryParseError>> errors;
 	const auto parsed = ParseSet(texts, errors);
@@ -499,10 +501,10 @@ std::vector<QueryDefinition> RegisterWorkbook(duckdb::Connection &connection, co
 			item.Set("index", int64_t(i));
 			queries.AddObject(item);
 			if (first.empty()) {
-				first = "запрос №" + std::to_string(i + 1) + ": " + errors[i][0].ToString();
+				first = "query #" + std::to_string(i + 1) + ": " + errors[i][0].ToString();
 			}
 		}
-		throw ParseError("Запросы книги не зарегистрированы: " + first, std::move(details));
+		throw ParseError("The workbook's queries were not registered: " + first, std::move(details));
 	}
 
 	std::lock_guard<std::mutex> guard(RegistryLock());

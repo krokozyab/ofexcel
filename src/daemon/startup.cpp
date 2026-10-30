@@ -59,12 +59,12 @@ std::string EnsureHome() {
 	try {
 		home = QexcelHome();
 	} catch (const std::exception &error) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; задайте --db", error.what());
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; pass --db", error.what());
 	}
 	std::error_code error;
 	const bool created = fs::create_directories(fs::u8path(home), error);
 	if (error) {
-		throw duckdb::IOException("E_INTERNAL: не удалось создать каталог %s: %s", home, error.message());
+		throw duckdb::IOException("E_INTERNAL: cannot create folder %s: %s", home, error.message());
 	}
 #ifndef _WIN32
 	if (created) {
@@ -81,7 +81,7 @@ int ParsePort(const std::string &text) {
 	                    std::all_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); });
 	const int port = digits ? std::stoi(text) : -1;
 	if (port < 0 || port > 65535) {
-		throw duckdb::InvalidInputException("E_BAD_REQUEST: --port должен быть числом от 0 до 65535, а не '%s'", text);
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: --port must be a number from 0 to 65535, not '%s'", text);
 	}
 	return port;
 }
@@ -138,7 +138,7 @@ void Harden(duckdb::Connection &connection) {
 std::string ReadTextFile(const std::string &path) {
 	std::ifstream file(fs::u8path(path), std::ios::binary);
 	if (!file) {
-		throw duckdb::IOException("E_BAD_REQUEST: не удалось прочитать файл %s", path);
+		throw duckdb::IOException("E_BAD_REQUEST: cannot read file %s", path);
 	}
 	std::ostringstream content;
 	content << file.rdbuf();
@@ -170,8 +170,8 @@ void CheckDatabaseFileName(const std::string &path) {
 	for (const auto *reserved : RESERVED_CATALOG_NAMES) {
 		if (stem == reserved) {
 			throw duckdb::InvalidInputException(
-			    "E_BAD_REQUEST: файл базы %s называется так же, как схема %s. DuckDB называет каталог по имени "
-			    "файла, и обращения к %s.* станут неоднозначными. Выберите другое имя, например %s",
+			    "E_BAD_REQUEST: database file %s has the same name as schema %s. DuckDB names the catalog after the "
+			    "file, so references to %s.* would be ambiguous. Choose another name, for example %s",
 			    path, reserved, reserved, DATABASE_FILE_NAME);
 		}
 	}
@@ -210,7 +210,7 @@ PreparedDatabase PrepareDaemonDatabase(const StartupOptions &options) {
 		try {
 			Execute(connection, init_sql);
 		} catch (const std::exception &error) {
-			throw duckdb::InvalidInputException("E_BAD_REQUEST: ошибка в %s: %s", prepared.init_file,
+			throw duckdb::InvalidInputException("E_BAD_REQUEST: error in %s: %s", prepared.init_file,
 			                                    duckdb::ErrorData(error).Message());
 		}
 	}

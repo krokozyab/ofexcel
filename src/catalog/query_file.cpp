@@ -98,14 +98,14 @@ public:
 		SkipSpaces();
 		const auto name = Word();
 		if (name.empty()) {
-			error = "@depends: ожидается query_id(…) или xl_import.имя";
+			error = "@depends: expected query_id(…) or xl_import.name";
 			return false;
 		}
 		if (name == "xl_import" && Take('.')) {
 			dependency.kind = Dependency::Kind::IMPORT;
 			dependency.name = Word();
 			if (!IsIdentifier(dependency.name)) {
-				error = "@depends: недопустимое имя импорта «" + dependency.name + "» после xl_import.";
+				error = "@depends: invalid import name \"" + dependency.name + "\" after xl_import.";
 				return false;
 			}
 			return End(error);
@@ -113,12 +113,12 @@ public:
 		dependency.kind = Dependency::Kind::QUERY;
 		dependency.name = name;
 		if (!IsIdentifier(name)) {
-			error = "@depends: недопустимый query_id «" + name + "»";
+			error = "@depends: invalid query_id \"" + name + "\"";
 			return false;
 		}
 		SkipSpaces();
 		if (!Take('(')) {
-			error = "@depends: после " + name + " ожидается «(»; без аргументов — " + name + "()";
+			error = "@depends: expected \"(\" after " + name + "; with no arguments, write " + name + "()";
 			return false;
 		}
 		SkipSpaces();
@@ -132,7 +132,7 @@ public:
 			}
 			for (const auto &existing : dependency.arguments) {
 				if (existing.name == argument.name) {
-					error = "@depends: аргумент " + argument.name + " повторяется";
+					error = "@depends: argument " + argument.name + " is repeated";
 					return false;
 				}
 			}
@@ -140,7 +140,7 @@ public:
 			SkipSpaces();
 		} while (Take(','));
 		if (!Take(')')) {
-			error = "@depends: ожидается «,» или «)»";
+			error = "@depends: expected \",\" or \")\"";
 			return false;
 		}
 		return End(error);
@@ -151,12 +151,12 @@ private:
 		SkipSpaces();
 		argument.name = Word();
 		if (!IsIdentifier(argument.name)) {
-			error = "@depends: недопустимое имя аргумента «" + argument.name + "»";
+			error = "@depends: invalid argument name \"" + argument.name + "\"";
 			return false;
 		}
 		SkipSpaces();
 		if (!Take(':') || !Take('=')) {
-			error = "@depends: после " + argument.name + " ожидается «:=»";
+			error = "@depends: expected \":=\" after " + argument.name;
 			return false;
 		}
 		SkipSpaces();
@@ -164,7 +164,7 @@ private:
 			argument.kind = DependencyArgument::Kind::PARAM;
 			argument.value = Word();
 			if (!IsIdentifier(argument.value)) {
-				error = "@depends: после $ ожидается имя параметра";
+				error = "@depends: expected a parameter name after $";
 				return false;
 			}
 			return true;
@@ -188,7 +188,7 @@ private:
 			SkipSpaces();
 			std::string date;
 			if (Peek() != '\'' || !Quoted(date, error)) {
-				error = "@depends: DATE пишется как DATE 'YYYY-MM-DD'";
+				error = "@depends: DATE is written as DATE 'YYYY-MM-DD'";
 				return false;
 			}
 			ParamType type;
@@ -201,8 +201,8 @@ private:
 			argument.value = canonical;
 			return true;
 		}
-		error = "@depends: значение аргумента " + argument.name +
-		        " — $параметр, 'строка', число, DATE 'YYYY-MM-DD', TRUE или FALSE";
+		error = "@depends: the value of argument " + argument.name +
+		        " must be a $parameter, 'string', number, DATE 'YYYY-MM-DD', TRUE or FALSE";
 		return false;
 	}
 
@@ -220,7 +220,7 @@ private:
 			}
 			value += text[at++];
 		}
-		error = "@depends: строка не закрыта кавычкой";
+		error = "@depends: unterminated string literal";
 		return false;
 	}
 
@@ -241,7 +241,7 @@ private:
 			valid = at > fraction_start;
 		}
 		if (!valid) {
-			error = "@depends: неверное число";
+			error = "@depends: invalid number";
 			return false;
 		}
 		value = text.substr(start, at - start);
@@ -251,7 +251,7 @@ private:
 	bool End(std::string &error) {
 		SkipSpaces();
 		if (at != text.size()) {
-			error = "@depends: лишний текст «" + text.substr(at) + "»";
+			error = "@depends: unexpected text \"" + text.substr(at) + "\"";
 			return false;
 		}
 		return true;
@@ -337,7 +337,7 @@ public:
 		for (size_t i = 0; i < header_end; i++) {
 			const int line = static_cast<int>(i) + 1;
 			if (!IsValidUtf8(lines[i])) {
-				Error(line, "строка не в UTF-8");
+				Error(line, "line is not valid UTF-8");
 				continue;
 			}
 			HeaderLine(line, Trim(lines[i]));
@@ -348,7 +348,7 @@ public:
 		header.body = header_end < lines.size() ? normalized.substr(offsets[header_end]) : std::string();
 		CheckWholeHeader();
 		if (!HasStatement(header.body)) {
-			Error(header.body_line, "после заголовка нет текста запроса");
+			Error(header.body_line, "no query text after the header");
 		}
 		return std::move(result);
 	}
@@ -390,22 +390,22 @@ private:
 		if (!Contains(DIRECTIVES, sizeof(DIRECTIVES) / sizeof(*DIRECTIVES), key)) {
 			const auto lower = Lower(key);
 			if (lower != key && Contains(DIRECTIVES, sizeof(DIRECTIVES) / sizeof(*DIRECTIVES), lower)) {
-				Error(line, "директива пишется в нижнем регистре: @" + lower + ", а не @" + key);
+				Error(line, "directives are written in lowercase: @" + lower + ", not @" + key);
 			} else {
-				Error(line, "неизвестная директива @" + key);
+				Error(line, "unknown directive @" + key);
 			}
 			return;
 		}
 		if (!Contains(REPEATABLE, sizeof(REPEATABLE) / sizeof(*REPEATABLE), key)) {
 			const auto seen = first_line.find(key);
 			if (seen != first_line.end()) {
-				Error(line, "директива @" + key + " повторяется (первая — в строке " + std::to_string(seen->second) + ")");
+				Error(line, "directive @" + key + " is repeated (first on line " + std::to_string(seen->second) + ")");
 				return;
 			}
 			first_line[key] = line;
 		}
 		if (value.empty() && key != "description") {
-			Error(line, "у директивы @" + key + " нет значения");
+			Error(line, "directive @" + key + " has no value");
 			return;
 		}
 		Directive(line, key, value);
@@ -416,7 +416,7 @@ private:
 		int64_t number = 0;
 		if (key == "id") {
 			if (!IsIdentifier(value)) {
-				Error(line, "@id: «" + value + "» — не идентификатор: [a-z][a-z0-9_], до 63 символов");
+				Error(line, "@id: \"" + value + "\" is not an identifier: [a-z][a-z0-9_], up to 63 characters");
 				return;
 			}
 			header.id = value;
@@ -426,19 +426,19 @@ private:
 			} else if (value == "local") {
 				header.engine = Engine::LOCAL;
 			} else {
-				Error(line, "@engine: «" + value + "» — ожидается oracle или local");
+				Error(line, "@engine: expected oracle or local, not \"" + value + "\"");
 				return;
 			}
 			engine_known = true;
 		} else if (key == "version") {
 			if (!ParseBoundedInteger(value, MAX_VERSION, number)) {
-				Error(line, "@version: «" + value + "» — ожидается целое от 1 до 2147483647");
+				Error(line, "@version: expected an integer from 1 to 2147483647, not \"" + value + "\"");
 				return;
 			}
 			header.version = static_cast<int32_t>(number);
 		} else if (key == "title") {
 			if (Utf8Length(value) > MAX_TITLE_CHARACTERS) {
-				Error(line, "@title длиннее " + std::to_string(MAX_TITLE_CHARACTERS) + " символов");
+				Error(line, "@title is longer than " + std::to_string(MAX_TITLE_CHARACTERS) + " characters");
 				return;
 			}
 			header.title = value;
@@ -446,7 +446,8 @@ private:
 			header.description += (description_lines++ ? "\n" : "") + value;
 		} else if (key == "connection") {
 			if (!IsIdentifier(value)) {
-				Error(line, "@connection: «" + value + "» — не имя подключения: [a-z][a-z0-9_], до 63 символов");
+				Error(line,
+				      "@connection: \"" + value + "\" is not a connection name: [a-z][a-z0-9_], up to 63 characters");
 				return;
 			}
 			header.connection = value;
@@ -470,13 +471,13 @@ private:
 				return;
 			}
 			if (value.compare(0, 11, "incremental") == 0) {
-				Error(line, "@refresh: инкрементальное обновление не входит в MVP; используйте full", CODE_UNSUPPORTED);
+				Error(line, "@refresh: incremental refresh is not part of the MVP; use full", CODE_UNSUPPORTED);
 				return;
 			}
-			Error(line, "@refresh: «" + value + "» — ожидается full");
+			Error(line, "@refresh: expected full, not \"" + value + "\"");
 		} else if (key == "max_rows") {
 			if (!ParseBoundedInteger(value, MAX_MAX_ROWS, number)) {
-				Error(line, "@max_rows: «" + value + "» — ожидается целое от 1 до 1048575");
+				Error(line, "@max_rows: expected an integer from 1 to 1048575, not \"" + value + "\"");
 				return;
 			}
 			header.max_rows = number;
@@ -487,14 +488,15 @@ private:
 	void Param(int line, const std::string &value) {
 		const auto colon = value.find(':');
 		if (colon == std::string::npos) {
-			Error(line, "@param пишется как «имя: тип [= по_умолчанию] [| описание]»");
+			Error(line, "@param is written as \"name: type [= default] [| description]\"");
 			return;
 		}
 		QueryParam param;
 		param.line = line;
 		param.name = Trim(value.substr(0, colon));
 		if (!IsIdentifier(param.name)) {
-			Error(line, "@param: «" + param.name + "» — недопустимое имя: [a-z][a-z0-9_], до 63 символов, только нижний регистр");
+			Error(line, "@param: \"" + param.name +
+			                "\" is not a valid name: [a-z][a-z0-9_], up to 63 characters, lowercase only");
 			return;
 		}
 		const auto rest = value.substr(colon + 1);
@@ -518,12 +520,13 @@ private:
 			param.description = Trim(tail.substr(1));
 		}
 		if (param.has_default && !CanonicalDefault(param, default_text, error)) {
-			Error(line, "@param " + param.name + ": значение по умолчанию " + error);
+			Error(line, "@param " + param.name + ": default value " + error);
 			return;
 		}
 		for (const auto &existing : result.header.params) {
 			if (Lower(existing.name) == Lower(param.name)) {
-				Error(line, "@param " + param.name + " повторяется (первый — в строке " + std::to_string(existing.line) + ")");
+				Error(line,
+				      "@param " + param.name + " is repeated (first on line " + std::to_string(existing.line) + ")");
 				return;
 			}
 		}
@@ -553,12 +556,12 @@ private:
 				}
 			}
 			if (!closed) {
-				error = "значение по умолчанию в кавычках не закрыто";
+				error = "unterminated quoted default value";
 				return false;
 			}
 			const auto after = Trim(text.substr(at));
 			if (!after.empty() && after[0] != '|') {
-				error = "после значения по умолчанию в кавычках ожидается «|» или конец строки";
+				error = "expected \"|\" or end of line after the quoted default value";
 				return false;
 			}
 			tail = after;
@@ -568,7 +571,7 @@ private:
 		value = Trim(text.substr(0, bar));
 		tail = bar == std::string::npos ? std::string() : text.substr(bar);
 		if (value.empty()) {
-			error = "после «=» нет значения по умолчанию; пустая строка пишется как \"\"";
+			error = "no default value after \"=\"; an empty string is written as \"\"";
 			return false;
 		}
 		return true;
@@ -610,14 +613,14 @@ private:
 	void Column(int line, const std::string &value) {
 		const auto colon = value.find(':');
 		if (colon == std::string::npos) {
-			Error(line, "@column пишется как «ИМЯ: тип [| заголовок]»");
+			Error(line, "@column is written as \"NAME: type [| header]\"");
 			return;
 		}
 		QueryColumn column;
 		column.line = line;
 		column.name = Trim(value.substr(0, colon));
 		if (!IsColumnName(column.name)) {
-			Error(line, "@column: «" + column.name + "» — недопустимое имя колонки: [A-Za-z][A-Za-z0-9_$#]*");
+			Error(line, "@column: \"" + column.name + "\" is not a valid column name: [A-Za-z][A-Za-z0-9_$#]*");
 			return;
 		}
 		const auto rest = value.substr(colon + 1);
@@ -632,8 +635,8 @@ private:
 		}
 		for (const auto &existing : result.header.columns) {
 			if (Lower(existing.name) == Lower(column.name)) {
-				Error(line, "@column " + column.name + " повторяется (первая — в строке " + std::to_string(existing.line) +
-				                "; имена сравниваются без учёта регистра)");
+				Error(line, "@column " + column.name + " is repeated (first on line " + std::to_string(existing.line) +
+				                "; names are compared case-insensitively)");
 				return;
 			}
 		}
@@ -646,19 +649,19 @@ private:
 		auto &header = result.header;
 		for (const auto *required : {"id", "engine", "version"}) {
 			if (first_line.find(required) == first_line.end()) {
-				Error(0, std::string("нет обязательной директивы @") + required);
+				Error(0, std::string("missing required directive @") + required);
 			}
 		}
 		if (engine_known && header.engine == Engine::LOCAL && connection_line) {
-			Error(connection_line, "@connection допустима только в запросе с @engine: oracle");
+			Error(connection_line, "@connection is only allowed in a query with @engine: oracle");
 		}
 		for (const auto &dependency : header.depends) {
 			if (engine_known && header.engine == Engine::ORACLE) {
-				Error(dependency.line, "@depends допустима только в запросе с @engine: local");
+				Error(dependency.line, "@depends is only allowed in a query with @engine: local");
 				continue;
 			}
 			if (dependency.kind == Dependency::Kind::QUERY && !header.id.empty() && dependency.name == header.id) {
-				Error(dependency.line, "@depends: запрос не может зависеть от самого себя");
+				Error(dependency.line, "@depends: a query cannot depend on itself");
 			}
 			for (const auto &argument : dependency.arguments) {
 				if (argument.kind != DependencyArgument::Kind::PARAM) {
@@ -669,7 +672,7 @@ private:
 					declared = declared || param.name == argument.value;
 				}
 				if (!declared) {
-					Error(dependency.line, "@depends: $" + argument.value + " не объявлен в @param");
+					Error(dependency.line, "@depends: $" + argument.value + " is not declared in @param");
 				}
 			}
 		}
@@ -688,7 +691,7 @@ private:
 } // namespace
 
 std::string QueryParseError::ToString() const {
-	return line > 0 ? "строка " + std::to_string(line) + ": " + message : message;
+	return line > 0 ? "line " + std::to_string(line) + ": " + message : message;
 }
 
 bool IsIdentifier(const std::string &text) {

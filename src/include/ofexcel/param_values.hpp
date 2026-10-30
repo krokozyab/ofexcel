@@ -38,7 +38,7 @@ struct ParamResult {
 	CanonicalValue value;
 	//! E_PARAM_MISSING, E_PARAM_TYPE or E_PARAM_TOO_LONG (CONTRACTS.md §14).
 	std::string code;
-	//! Russian, for the user; the caller prefixes the parameter's name.
+	//! English, for the user; the caller prefixes the parameter's name.
 	std::string message;
 };
 

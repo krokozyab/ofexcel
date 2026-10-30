@@ -127,11 +127,11 @@ void GetRoute(const httplib::Request &request, httplib::Response &response, duck
 	scope.source_ref = UrlParam(request, "source_ref");
 	if (!scope.source_kind.empty() && scope.source_kind != SOURCE_PROJECT && scope.source_kind != SOURCE_WORKBOOK &&
 	    scope.source_kind != SOURCE_EXAMPLE) {
-		throw ApiError("E_BAD_REQUEST", 422, "source_kind должен быть project, workbook или example");
+		throw ApiError("E_BAD_REQUEST", 422, "source_kind must be project, workbook or example");
 	}
 	QueryDefinition definition;
 	if (!FindQuery(connection, id, scope, definition)) {
-		throw ApiError("E_NOT_FOUND", 404, "Нет запроса " + id);
+		throw ApiError("E_NOT_FOUND", 404, "No query " + id);
 	}
 	auto summary = Summary(definition, connection);
 	summary.Set("text", definition.text);
@@ -152,7 +152,7 @@ void PutWorkbookRoute(const httplib::Request &request, httplib::Response &respon
 	const auto document = ParseBody(request);
 	const auto queries = document.Root().Get("queries");
 	if (!queries.Is(JsonKind::ARRAY)) {
-		throw ApiError("E_BAD_REQUEST", 422, "В теле запроса нет массива queries");
+		throw ApiError("E_BAD_REQUEST", 422, "The request body has no queries array");
 	}
 	std::vector<std::string> texts;
 	for (size_t i = 0; i < queries.Size(); i++) {
@@ -225,7 +225,7 @@ void ValidateRoute(const httplib::Request &request, httplib::Response &response,
 			if (std::find(used.begin(), used.end(), param.name) == used.end()) {
 				JsonObject warning;
 				warning.Set("code", WARNING_PARAM_UNUSED)
-				    .Set("message", "параметр " + param.name + " объявлен, но не используется в тексте запроса");
+				    .Set("message", "parameter " + param.name + " is declared but not used in the query text");
 				warnings.AddObject(warning);
 			}
 		}

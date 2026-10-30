@@ -120,22 +120,22 @@ std::string ExactInteger(double value) {
 
 ParamResult ScalarFromNumber(const ParamType &type, const std::string &number) {
 	if (!IsJsonNumber(number)) {
-		return Refused(CODE_TYPE, "«" + number + "» — не число JSON");
+		return Refused(CODE_TYPE, "\"" + number + "\" is not a JSON number");
 	}
 	// strtod reads the C locale's decimal point; the daemon never changes the locale.
 	const double value = std::strtod(number.c_str(), nullptr);
 	if (!std::isfinite(value)) {
-		return Refused(CODE_TYPE, "число " + number + " вне диапазона double");
+		return Refused(CODE_TYPE, "number " + number + " is outside the range of double");
 	}
 	switch (type.kind) {
 	case ParamKind::INTEGER:
 	case ParamKind::ID: {
 		const auto digits = ExactInteger(value);
 		if (digits.empty()) {
-			return Refused(CODE_TYPE, "число " + number + " — не целое в пределах ±2^53");
+			return Refused(CODE_TYPE, "number " + number + " is not an integer within ±2^53");
 		}
 		if (type.kind == ParamKind::ID && digits[0] == '-') {
-			return Refused(CODE_TYPE, "идентификатор не может быть отрицательным: " + number);
+			return Refused(CODE_TYPE, "an identifier cannot be negative: " + number);
 		}
 		return Ok(CanonicalValue::Scalar(digits));
 	}
@@ -147,7 +147,8 @@ ParamResult ScalarFromNumber(const ParamType &type, const std::string &number) {
 		std::string canonical;
 		std::string error;
 		if (plain.empty() || !CanonicalizeText(type, plain, canonical, error)) {
-			return Refused(CODE_TYPE, error.empty() ? "число " + number + " не помещается в " + type.ToString() : error);
+			return Refused(CODE_TYPE,
+			               error.empty() ? "number " + number + " does not fit in " + type.ToString() : error);
 		}
 		return Ok(CanonicalValue::Scalar(canonical));
 	}
@@ -156,19 +157,19 @@ ParamResult ScalarFromNumber(const ParamType &type, const std::string &number) {
 		return Ok(CanonicalValue::Scalar(ShortestDouble(value)));
 	case ParamKind::DATE:
 	case ParamKind::TIMESTAMP:
-		return Refused(CODE_TYPE, "дата передаётся строкой YYYY-MM-DD, а не числом " + number +
-		                              " (серийные даты Excel панель переводит сама)");
+		return Refused(CODE_TYPE, "a date is passed as a YYYY-MM-DD string, not as the number " + number +
+		                              " (the task pane converts Excel serial dates itself)");
 	case ParamKind::BOOLEAN:
 	case ParamKind::ENUM:
 	case ParamKind::LIST:
 		break;
 	}
-	return Refused(CODE_TYPE, "число " + number + " не подходит для типа " + type.ToString());
+	return Refused(CODE_TYPE, "number " + number + " is not valid for type " + type.ToString());
 }
 
 ParamResult ScalarFromString(const ParamType &type, const std::string &text) {
 	if (type.kind == ParamKind::STRING && text.size() > MAX_STRING_BYTES) {
-		return Refused(CODE_TOO_LONG, "строка длиннее " + std::to_string(MAX_STRING_BYTES) + " байт UTF-8");
+		return Refused(CODE_TOO_LONG, "string is longer than " + std::to_string(MAX_STRING_BYTES) + " bytes of UTF-8");
 	}
 	std::string canonical;
 	std::string error;
@@ -188,14 +189,14 @@ ParamResult Scalar(const ParamType &type, const ParamInput &input) {
 		if (type.kind == ParamKind::BOOLEAN || type.kind == ParamKind::STRING) {
 			return Ok(CanonicalValue::Scalar(input.boolean ? "true" : "false"));
 		}
-		return Refused(CODE_TYPE, std::string("логическое значение не подходит для типа ") + type.ToString());
+		return Refused(CODE_TYPE, std::string("a boolean is not valid for type ") + type.ToString());
 	case ParamInput::Kind::ARRAY:
-		return Refused(CODE_TYPE, "ожидается одно значение типа " + type.ToString() + ", а не список");
+		return Refused(CODE_TYPE, "expected a single value of type " + type.ToString() + ", not a list");
 	case ParamInput::Kind::MISSING:
 	case ParamInput::Kind::NULL_VALUE:
 		break;
 	}
-	return Refused(CODE_TYPE, "пустое значение");
+	return Refused(CODE_TYPE, "empty value");
 }
 
 bool IsEmpty(const ParamInput &input) {
@@ -248,24 +249,24 @@ ParamResult NormalizeParam(const ParamType &type, const CanonicalValue *default_
 		if (default_value) {
 			return Ok(*default_value);
 		}
-		return Refused(CODE_MISSING, "значение не задано, а значения по умолчанию нет");
+		return Refused(CODE_MISSING, "no value given and no default value");
 	}
 	if (type.kind != ParamKind::LIST) {
 		return Scalar(type, input);
 	}
 	if (input.kind != ParamInput::Kind::ARRAY) {
-		return Refused(CODE_TYPE, "ожидается список " + type.ToString());
+		return Refused(CODE_TYPE, "expected a list for type " + type.ToString());
 	}
 	if (input.elements.size() > MAX_LIST_ELEMENTS) {
-		return Refused(CODE_TOO_LONG, "в списке больше " + std::to_string(MAX_LIST_ELEMENTS) + " элементов");
+		return Refused(CODE_TOO_LONG, "the list has more than " + std::to_string(MAX_LIST_ELEMENTS) + " elements");
 	}
 	std::vector<std::string> elements;
 	elements.reserve(input.elements.size());
 	for (size_t i = 0; i < input.elements.size(); i++) {
 		const auto &element = input.elements[i];
-		const auto position = "элемент " + std::to_string(i + 1) + ": ";
+		const auto position = "element " + std::to_string(i + 1) + ": ";
 		if (element.kind == ParamInput::Kind::MISSING || element.kind == ParamInput::Kind::NULL_VALUE) {
-			return Refused(CODE_TYPE, position + "пустое значение в списке");
+			return Refused(CODE_TYPE, position + "empty value in the list");
 		}
 		// "" in a list is a value: a list<string> may hold it, and other types refuse it.
 		auto result = Scalar(*type.element, element);

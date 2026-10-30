@@ -121,12 +121,12 @@ void RegisterProbeRoutes(httplib::Server &server, const RouteContext &context) {
 		const auto limit = IntegerParam(request, "limit", DEFAULT_LIMIT);
 		if (!IsIdentifier(table) || offset < 0 || limit < 1 || limit > MAX_LIMIT) {
 			SendError(response, 400, "E_BAD_REQUEST",
-			          "Нужны table (имя таблицы в схеме probe), offset ≥ 0 и limit от 1 до 100000");
+			          "Expected table (a table name in the probe schema), offset ≥ 0 and limit from 1 to 100000");
 			return;
 		}
 		auto connection = context.Connect();
 		if (!connection) {
-			SendError(response, 503, "E_INTERNAL", "База данных закрыта");
+			SendError(response, 503, "E_INTERNAL", "The database is closed");
 			return;
 		}
 
@@ -135,7 +135,7 @@ void RegisterProbeRoutes(httplib::Server &server, const RouteContext &context) {
 		auto found = exists->Execute(duckdb::Value(table));
 		auto found_chunk = found->Fetch();
 		if (!found_chunk || found_chunk->GetValue(0, 0).GetValue<int64_t>() == 0) {
-			SendError(response, 404, "E_NOT_FOUND", "Нет таблицы probe." + table);
+			SendError(response, 404, "E_NOT_FOUND", "No table probe." + table);
 			return;
 		}
 

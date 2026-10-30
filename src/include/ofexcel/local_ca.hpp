@@ -1,7 +1,7 @@
 #pragma once
 
 // The local CA and the server certificate the daemon serves HTTPS with
-// (DECISIONS.md Р6, CONTRACTS.md §8.1, SPEC.md §12.4).
+// (DECISIONS.md R6, CONTRACTS.md §8.1, SPEC.md §12.4).
 //
 // Pure: OpenSSL and the standard library only, no DuckDB, no httplib. The
 // OpenSSL types stay out of this header, so a file that needs <wincrypt.h>

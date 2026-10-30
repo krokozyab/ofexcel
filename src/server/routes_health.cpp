@@ -19,7 +19,7 @@ void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context) 
 	server.Get("/v1/health", [context](const httplib::Request &, httplib::Response &response) {
 		auto connection = context.Connect();
 		if (!connection) {
-			SendError(response, 503, "E_INTERNAL", "База данных закрыта");
+			SendError(response, 503, "E_INTERNAL", "The database is closed");
 			return;
 		}
 		const auto state = ReadMetaState(*connection);

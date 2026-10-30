@@ -29,18 +29,20 @@ ApiError FusionApiError(const duckdb::ErrorData &error) {
 	std::cerr << "ofexceld: Fusion error: " << raw << std::endl;
 	switch (error.Type()) {
 	case duckdb::ExceptionType::INVALID_INPUT:
-		// ofquack's authentication failures, including "Not signed in".
-		return ApiError("E_FUSION_AUTH", 409,
-		                "Нет входа в Oracle Fusion или срок входа истёк. Войдите снова: " + FirstLine(raw));
+		// ofquack's authentication failures, including "Not signed in". Its text
+		// goes on with a command line for a terminal user, which means nothing in
+		// Excel; the full text is in the log.
+		return ApiError("E_FUSION_AUTH", 409, "Not signed in to Oracle Fusion, or the sign-in has expired. Sign in again");
 	case duckdb::ExceptionType::IO:
 		if (StartsWith(raw, REJECTED_PREFIX)) {
-			return ApiError("E_FUSION_REJECTED", 502, "Oracle Fusion отклонил запрос: " + FirstLine(raw));
+			// Already says so: "Oracle Fusion rejected the query: ORA-…".
+			return ApiError("E_FUSION_REJECTED", 502, FirstLine(raw));
 		}
-		return ApiError("E_FUSION_UNAVAILABLE", 503, "Oracle Fusion недоступен: " + FirstLine(raw));
+		return ApiError("E_FUSION_UNAVAILABLE", 503, "Oracle Fusion is unavailable: " + FirstLine(raw));
 	case duckdb::ExceptionType::OUT_OF_MEMORY:
-		return ApiError("E_OUT_OF_MEMORY", 507, "Не хватает памяти DuckDB: " + FirstLine(raw));
+		return ApiError("E_OUT_OF_MEMORY", 507, "DuckDB is out of memory: " + FirstLine(raw));
 	default:
-		return ApiError("E_INTERNAL", 500, "Внутренняя ошибка ofexceld: " + FirstLine(raw));
+		return ApiError("E_INTERNAL", 500, "ofexceld internal error: " + FirstLine(raw));
 	}
 }
 

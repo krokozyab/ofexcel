@@ -1,7 +1,7 @@
 #pragma once
 
 // The daemon's HTTPS server: one per process, bound to 127.0.0.1, with a
-// certificate from the local CA (DECISIONS.md Р6, src/security/local_ca.cpp).
+// certificate from the local CA (DECISIONS.md R6, src/security/local_ca.cpp).
 //
 // httplib stays out of this header. Routes live in src/server/routes_*.cpp and
 // see it through src/server/routes.hpp.

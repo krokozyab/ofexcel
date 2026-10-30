@@ -21,7 +21,7 @@ const char *const BUILTIN_TASKPANE = R"QEXCEL(<!doctype html>
 <title>QExcel</title>
 </head>
 <body>
-<p>QExcel: панель надстройки ещё не собрана, ofexceld отдаёт заглушку.</p>
+<p>QExcel: the add-in task pane is not built yet, so ofexceld serves a placeholder.</p>
 </body>
 </html>
 )QEXCEL";
@@ -29,25 +29,25 @@ const char *const BUILTIN_TASKPANE = R"QEXCEL(<!doctype html>
 const char *const BUILTIN_FUNCTIONS = R"QEXCEL({
   "functions": [
     { "id": "TABLE", "name": "TABLE",
-      "description": "Результат запроса QExcel как массив; первая строка — заголовки",
+      "description": "QExcel query result as an array; the first row holds the headers",
       "parameters": [
         { "name": "query", "type": "string", "dimensionality": "scalar" },
         { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
       "result": { "type": "any", "dimensionality": "matrix" } },
     { "id": "CALL", "name": "CALL",
-      "description": "Скалярное значение запроса QExcel (результат 1 × 1)",
+      "description": "Scalar value of a QExcel query (a 1 × 1 result)",
       "parameters": [
         { "name": "query", "type": "string", "dimensionality": "scalar" },
         { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
       "result": { "type": "any", "dimensionality": "scalar" } },
     { "id": "ASOF", "name": "ASOF",
-      "description": "Время последнего успешного получения данных запроса",
+      "description": "Time the query data was last fetched successfully",
       "parameters": [
         { "name": "query", "type": "string", "dimensionality": "scalar", "optional": true },
         { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
       "result": { "type": "number", "dimensionality": "scalar" } },
     { "id": "STATUS", "name": "STATUS",
-      "description": "Состояние QExcel: OK, NOT_SIGNED_IN, STALE, OFFLINE",
+      "description": "QExcel status: OK, NOT_SIGNED_IN, STALE, OFFLINE",
       "parameters": [],
       "result": { "type": "string", "dimensionality": "scalar" } }
   ]
@@ -187,7 +187,7 @@ void RegisterAddinRoutes(httplib::Server &server, const RouteContext &context) {
 			}
 		}
 		if (!found) {
-			SendError(response, 404, "E_NOT_FOUND", "Нет такого файла надстройки");
+			SendError(response, 404, "E_NOT_FOUND", "No such add-in file");
 			return;
 		}
 		if (IsHtml(relative)) {

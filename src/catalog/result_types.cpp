@@ -339,7 +339,7 @@ void OracleColumnInference::Add(const std::string &value) {
 	all.max_whole_digits = std::max(all.max_whole_digits, shape.whole_digits);
 	all.max_scale = std::max(all.max_scale, shape.scale);
 	all.all_number = all.all_number && shape.number;
-	// Inference asks "all dates" and "all timestamps" separately (§3.3 п. 3: a
+	// Inference asks "all dates" and "all timestamps" separately (§3.3 item 3: a
 	// mix is a string); a column that already is a date or a timestamp holds
 	// either form.
 	all.all_date = all.all_date && shape.date;
@@ -362,8 +362,8 @@ ColumnInference OracleColumnInference::Finish() const {
 			result.code = "E_TYPE_DECLARED_MISMATCH";
 			result.row = mismatch_row;
 			result.value = mismatch_value;
-			result.message = "колонка " + name + " объявлена как " + declared.ToString() + ", но в строке " +
-			                 std::to_string(mismatch_row) + " значение «" + mismatch_value + "»";
+			result.message = "column " + name + " is declared as " + declared.ToString() + ", but in row " +
+			                 std::to_string(mismatch_row) + " the value is \"" + mismatch_value + "\"";
 		}
 		return result;
 	}
@@ -398,11 +398,12 @@ ColumnInference OracleColumnInference::Finish() const {
 		}
 		result.type = widened;
 		result.widened = true;
-		result.warnings.push_back("колонка " + name + ": тип расширен с " + start.ToString() + " до " + widened.ToString());
+		result.warnings.push_back("column " + name + ": type widened from " + start.ToString() + " to " +
+		                          widened.ToString());
 		return result;
 	}
 
-	// §3.3 п. 3, in the table's order.
+	// §3.3 item 3, in the table's order.
 	if (all.values == 0) {
 		result.type = OfKind(ColumnKind::STRING);
 	} else if (all.all_integer) {
@@ -413,7 +414,8 @@ ColumnInference OracleColumnInference::Finish() const {
 			result.type = Decimal(static_cast<int>(all.max_scale));
 		} else {
 			result.type = OfKind(ColumnKind::NUMBER);
-			result.warnings.push_back("колонка " + name + ": больше 38 значащих цифр, тип number — точность ограничена double");
+			result.warnings.push_back("column " + name +
+			                          ": more than 38 significant digits; type number keeps double precision only");
 		}
 	} else if (all.all_date) {
 		result.type = OfKind(ColumnKind::DATE);

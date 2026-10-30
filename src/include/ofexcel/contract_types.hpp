@@ -42,7 +42,7 @@ struct ColumnType {
 };
 
 //! Parses `ptype` from §2.2's grammar; spaces between lexemes are allowed,
-//! type names are lower case. Returns false and sets `error` (Russian, for
+//! type names are lower case. Returns false and sets `error` (English, for
 //! the user) if `text` is not one.
 bool ParseParamType(const std::string &text, ParamType &type, std::string &error);
 

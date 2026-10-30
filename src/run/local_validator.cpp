@@ -73,7 +73,7 @@ public:
 	void Statement(duckdb::SQLStatement &statement) {
 		if (statement.type != duckdb::StatementType::SELECT_STATEMENT) {
 			Violate("V2", duckdb::StatementTypeToString(statement.type),
-			        "разрешена только инструкция SELECT (в том числе WITH, UNION, VALUES)");
+			        "only a SELECT statement is allowed (including WITH, UNION, VALUES)");
 		}
 		Node(*statement.Cast<duckdb::SelectStatement>().node, {});
 	}
@@ -128,7 +128,7 @@ private:
 		}
 		default:
 			// INSERT … RETURNING and the like in a FROM: not a SELECT.
-			Violate("V2", "", "разрешены только SELECT, WITH, UNION, EXCEPT, INTERSECT и VALUES");
+			Violate("V2", "", "only SELECT, WITH, UNION, EXCEPT, INTERSECT and VALUES are allowed");
 		}
 		ParsedExpressionIterator::EnumerateQueryNodeModifiers(
 		    node, [&](duckdb::unique_ptr<ParsedExpression> &child) { Expression(child, ctes); });
@@ -182,7 +182,8 @@ private:
 			break;
 		default:
 			// SHOW, SUMMARIZE, DESCRIBE and internal references read tables of their own.
-			Violate("V2", ref.ToString(), "в FROM разрешены таблицы, подзапросы, JOIN, VALUES и unnest/range/generate_series");
+			Violate("V2", ref.ToString(),
+			        "FROM allows only tables, subqueries, JOIN, VALUES and unnest/range/generate_series");
 		}
 	}
 
@@ -194,26 +195,26 @@ private:
 		const auto written = (catalog.empty() ? "" : catalog + ".") + (schema.empty() ? "" : schema + ".") + name;
 		// V5 first: a quoted path is a table name to the parser.
 		if (name.find_first_of("./\\:") != std::string::npos || (!name.empty() && name[0] == '\'')) {
-			Violate("V5", written, "имя таблицы похоже на путь или URL; читать файлы из Local SQL нельзя");
+			Violate("V5", written, "the table name looks like a path or URL; Local SQL cannot read files");
 		}
 		if (!catalog.empty()) {
-			Violate("V4", written, "указывать каталог (db.schema.table) нельзя");
+			Violate("V4", written, "a catalog (db.schema.table) is not allowed");
 		}
 		if (!schema.empty()) {
 			if (Lower(schema) != "xl_import" || !Contains(scope.imports, name)) {
 				Violate("V4", written,
-				        "со схемой разрешена только таблица xl_import.<имя>, объявленная в @depends: xl_import.<имя>");
+				        "the only schema allowed is xl_import, for a table declared in @depends: xl_import.<name>");
 			}
 			return;
 		}
 		if (!Contains(ctes, name) && !Contains(scope.queries, name) && !Contains(scope.imports, name)) {
-			Violate("V3", written, "таблица не объявлена в @depends и не является CTE этого запроса");
+			Violate("V3", written, "the table is not declared in @depends and is not a CTE of this query");
 		}
 	}
 
 	void TableFunction(duckdb::TableFunctionRef &ref, const std::vector<std::string> &ctes) {
 		if (!ref.function || ref.function->GetExpressionClass() != ExpressionClass::FUNCTION) {
-			Violate("V6", ref.ToString(), "табличные функции разрешены только unnest, range и generate_series");
+			Violate("V6", ref.ToString(), "the only table functions allowed are unnest, range and generate_series");
 		}
 		auto &function = ref.function->Cast<duckdb::FunctionExpression>();
 		const auto &qualified = function.GetQualifiedName();
@@ -222,7 +223,7 @@ private:
 		                     std::end(ALLOWED_TABLE_FUNCTIONS);
 		if (!allowed || !Name(qualified.Schema()).empty() || !Name(qualified.Catalog()).empty()) {
 			Violate("V6", Name(function.FunctionName()),
-			        "табличные функции разрешены только unnest, range и generate_series");
+			        "the only table functions allowed are unnest, range and generate_series");
 		}
 		// Their arguments are expressions like any other.
 		ParsedExpressionIterator::EnumerateChildren(*ref.function,
@@ -260,12 +261,13 @@ private:
 		const auto name = Lower(Name(function.FunctionName()));
 		for (const auto *forbidden : FORBIDDEN_FUNCTIONS) {
 			if (name == forbidden) {
-				Violate("V7", Name(function.FunctionName()), "функция запрещена в Local SQL");
+				Violate("V7", Name(function.FunctionName()), "the function is not allowed in Local SQL");
 			}
 		}
 		for (const auto *prefix : FORBIDDEN_PREFIXES) {
 			if (name.compare(0, std::char_traits<char>::length(prefix), prefix) == 0) {
-				Violate("V7", Name(function.FunctionName()), "функции ofexcel_*, fusion_scanner_*, oracle_fusion_* запрещены");
+				Violate("V7", Name(function.FunctionName()),
+				        "ofexcel_*, fusion_scanner_* and oracle_fusion_* functions are not allowed");
 			}
 		}
 	}
@@ -281,10 +283,10 @@ private:
 		}
 		if (positional) {
 			Violate("V8", identifier.empty() ? "?" : "$" + identifier,
-			        "позиционные параметры (? и $1) запрещены; используйте $имя из @param");
+			        "positional parameters (? and $1) are not allowed; use $name from @param");
 		}
 		if (!Contains(scope.params, identifier)) {
-			Violate("V8", "$" + identifier, "параметр не объявлен в @param");
+			Violate("V8", "$" + identifier, "the parameter is not declared in @param");
 		}
 	}
 
@@ -332,14 +334,14 @@ LocalSqlVerdict ValidateLocalSql(const std::string &sql, const LocalSqlScope &sc
 		parser.ParseQuery(sql);
 	} catch (const std::exception &error) {
 		verdict.code = "E_SQL_COMPILE";
-		verdict.message = "Local SQL не разбирается: " + duckdb::ErrorData(error).Message();
+		verdict.message = "Local SQL cannot be parsed: " + duckdb::ErrorData(error).Message();
 		return verdict;
 	}
 	Validator validator(scope);
 	try {
 		if (parser.statements.size() != 1) {
 			Violate("V1", std::to_string(parser.statements.size()),
-			        "нужна ровно одна инструкция, а их " + std::to_string(parser.statements.size()));
+			        "exactly one statement is needed, but there are " + std::to_string(parser.statements.size()));
 		}
 		validator.Statement(*parser.statements[0]);
 	} catch (const Violation &violation) {

@@ -16,9 +16,9 @@ namespace ofexcel {
 struct ColumnInference {
 	bool ok = true;
 	ColumnType type;
-	//! The start type did not hold the values and was widened (§3.3 п. 4).
+	//! The start type did not hold the values and was widened (§3.3 item 4).
 	bool widened = false;
-	//! Russian, for the run's warnings.
+	//! English, for the run's warnings.
 	std::vector<std::string> warnings;
 
 	//! !ok: E_TYPE_DECLARED_MISMATCH, the 1-based row and the value that does

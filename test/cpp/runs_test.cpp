@@ -308,7 +308,7 @@ void TestEmptyResult(Daemon &daemon) {
 	                   "' AND column_name = 'AMT'") == "DECIMAL(38,2)");
 
 	const auto declared_text =
-	    Query("declared", "-- @column VENDOR_ID: id | Поставщик\n-- @column AMOUNT: decimal(18,2)\n",
+	    Query("declared", "-- @column VENDOR_ID: id | Vendor\n-- @column AMOUNT: decimal(18,2)\n",
 	          "SELECT vendor_id, amount FROM ap_invoices WHERE 1 = 0");
 	const auto declared = StartAndWait(daemon, Request(declared_text));
 	CHECK(daemon.RunValue(declared, "status") == "succeeded");
@@ -400,14 +400,14 @@ void TestOracleRejects(Daemon &daemon) {
 	CHECK(daemon.TableExists(table));
 }
 
-//! §3.3 п. 1: a value the @column type does not hold fails the run.
+//! §3.3 item 1: a value the @column type does not hold fails the run.
 void TestDeclaredMismatch(Daemon &daemon) {
 	script.Answer(Page({{{"AMT", "1"}}, {{"AMT", ".84"}}}));
 	const auto run_id = StartAndWait(daemon, Request(Query("whole", "-- @column AMT: integer\n", "SELECT amt FROM t")));
 	CHECK(daemon.RunValue(run_id, "status") == "failed");
 	CHECK(daemon.RunValue(run_id, "error_code") == "E_TYPE_DECLARED_MISMATCH");
 	const auto message = daemon.RunValue(run_id, "error_message");
-	CHECK(Contains(message, "AMT") && Contains(message, "строке 2") && Contains(message, ".84"));
+	CHECK(Contains(message, "AMT") && Contains(message, "in row 2") && Contains(message, ".84"));
 	CHECK(daemon.Value("SELECT count(*) FROM duckdb_tables() WHERE schema_name = 'ds' AND "
 	                   "starts_with(table_name, 'whole__')") == "0");
 }

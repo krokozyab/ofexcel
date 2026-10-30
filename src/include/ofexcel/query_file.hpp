@@ -78,10 +78,10 @@ struct QueryParseError {
 	int line = 0;
 	//! E_QUERY_PARSE or E_UNSUPPORTED (CONTRACTS.md §14).
 	std::string code;
-	//! Russian, for the author.
+	//! English, for the author.
 	std::string message;
 
-	//! "строка 3: …", or the message alone for line 0.
+	//! "line 3: …", or the message alone for line 0.
 	std::string ToString() const;
 };
 

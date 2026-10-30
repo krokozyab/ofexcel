@@ -70,7 +70,7 @@ LocalColumnMapping MapLocalType(const duckdb::LogicalType &type, const std::stri
 	default:
 		mapping.type = OfKind(ColumnKind::STRING);
 		mapping.cast_to_varchar = true;
-		mapping.warning = "колонка " + name + ": тип " + type.ToString() + " передаётся строкой (CAST AS VARCHAR)";
+		mapping.warning = "column " + name + ": type " + type.ToString() + " is passed as a string (CAST AS VARCHAR)";
 		break;
 	}
 	return mapping;

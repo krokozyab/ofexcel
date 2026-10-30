@@ -146,7 +146,7 @@ docs/                       SPEC.md, CONTRACTS.md, DECISIONS.md, TASKS.md, PHASE
   CONTRACTS.md §14: `throw InvalidInputException("E_PARAM_TYPE: …")`.
 - HTTP errors go through `SendError(response, status, code, message)`. The status and code come
   from CONTRACTS.md §14.
-- User-facing messages are in **Russian**; log lines and comments in English.
+- User-facing messages, log lines, comments and the add-in UI are in **English** (`docs/DECISIONS.md` Р7). The docs under `docs/` stay in Russian.
 
 ### SQL functions
 - Bind declares columns and validates arguments. The action — starting a server, running a

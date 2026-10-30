@@ -109,7 +109,7 @@ DatasetCleanup CleanupDatasets(duckdb::Connection &connection, int64_t ttl_days)
 		const auto interrupted = QueryRows(connection,
 		                                   "UPDATE meta.runs SET status = 'failed', finished_at = $1, "
 		                                   "error_code = 'E_INTERNAL', "
-		                                   "error_message = 'ofexceld остановлен во время запуска' "
+		                                   "error_message = 'ofexceld stopped during the run' "
 		                                   "WHERE status IN ('queued', 'running')",
 		                                   {now});
 		cleanup.interrupted_runs = interrupted.empty() ? 0 : interrupted[0][0].GetValue<int64_t>();

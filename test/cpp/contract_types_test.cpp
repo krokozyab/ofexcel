@@ -29,10 +29,11 @@ void Accepts(const char *id, const std::string &type, const std::string &input, 
 	std::string canonical;
 	std::string error;
 	if (!CanonicalizeText(Type(type), input, canonical, error)) {
-		std::cerr << id << ": " << type << " refused «" << input << "»: " << error << "\n";
+		std::cerr << id << ": " << type << " refused \"" << input << "\": " << error << "\n";
 		failures++;
 	} else if (canonical != expected) {
-		std::cerr << id << ": " << type << " «" << input << "» → «" << canonical << "», expected «" << expected << "»\n";
+		std::cerr << id << ": " << type << " \"" << input << "\" → \"" << canonical << "\", expected \"" << expected
+		          << "\"\n";
 		failures++;
 	}
 }
@@ -41,17 +42,17 @@ void Refuses(const char *id, const std::string &type, const std::string &input) 
 	std::string canonical;
 	std::string error;
 	if (CanonicalizeText(Type(type), input, canonical, error)) {
-		std::cerr << id << ": " << type << " accepted «" << input << "» as «" << canonical << "»\n";
+		std::cerr << id << ": " << type << " accepted \"" << input << "\" as \"" << canonical << "\"\n";
 		failures++;
 	} else if (error.empty()) {
-		std::cerr << id << ": " << type << " refused «" << input << "» without a message\n";
+		std::cerr << id << ": " << type << " refused \"" << input << "\" without a message\n";
 		failures++;
 	}
 }
 
 void Expect(const char *id, const std::string &actual, const std::string &expected) {
 	if (actual != expected) {
-		std::cerr << id << ": got «" << actual << "», expected «" << expected << "»\n";
+		std::cerr << id << ": got \"" << actual << "\", expected \"" << expected << "\"\n";
 		failures++;
 	}
 }
@@ -124,7 +125,7 @@ void TestDecimal() {
 }
 
 void TestString() {
-	Accepts("string", "string", "Иван \"И\"", "Иван \"И\"");
+	Accepts("string", "string", "Zoë \"Z\"", "Zoë \"Z\"");
 	Accepts("string", "string", "tab\tlf\ncr\r", "tab\tlf\ncr\r");
 	Accepts("string", "string", "", "");
 	Accepts("string", "string", std::string(4000, 'x'), std::string(4000, 'x'));
@@ -206,7 +207,7 @@ void TestTypeGrammar() {
 		ParamType type;
 		std::string error;
 		if (ParseParamType(bad, type, error) || error.empty()) {
-			std::cerr << "type grammar: accepted «" << bad << "»\n";
+			std::cerr << "type grammar: accepted \"" << bad << "\"\n";
 			failures++;
 		}
 	}
@@ -215,7 +216,7 @@ void TestTypeGrammar() {
 		ColumnType type;
 		std::string error;
 		if (!ParseColumnType(good, type, error) || type.ToString() != good) {
-			std::cerr << "column type: «" << good << "» → «" << type.ToString() << "» " << error << "\n";
+			std::cerr << "column type: \"" << good << "\" → \"" << type.ToString() << "\" " << error << "\n";
 			failures++;
 		}
 	}
@@ -223,7 +224,7 @@ void TestTypeGrammar() {
 		ColumnType type;
 		std::string error;
 		if (ParseColumnType(bad, type, error)) {
-			std::cerr << "column type: accepted «" << bad << "»\n";
+			std::cerr << "column type: accepted \"" << bad << "\"\n";
 			failures++;
 		}
 	}
