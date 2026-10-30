@@ -785,6 +785,12 @@ type RowsPage = {
 
 **`GET /v1/dictionary/columns?connection=&table=`** → `{ columns: Array<{ name; type?; description? }> }` — через `oracle_fusion_columns(table)`.
 
+**Уточнения реализации словаря** (`src/server/routes_dictionary.cpp`):
+- `connection` обязателен (иначе 422 `E_BAD_REQUEST`) и должен быть секретом `oracle_fusion` (иначе 404 `E_NOT_FOUND`). Ошибки ofquack — по §14.1 (нет входа — 409 `E_FUSION_AUTH`).
+- `tables`: `q` пусто — все; имена, которые начинаются с `q`, идут первыми, затем по имени без учёта регистра. `limit` — от 1 до 1000, по умолчанию 50, иначе 422 `E_BAD_REQUEST`. `description` — описание из словаря Fusion, если оно не пустое.
+- `columns`: `table` обязателен (422), имя без учёта регистра; таблицы нет в словаре — 404 `E_NOT_FOUND`. Колонки — в порядке таблицы; `type` — тип Oracle, у `NUMBER` с точностью — `NUMBER(p,s)`; колонки представления — из `all_tab_columns`, без описания.
+- Список таблиц и колонки ofquack кэширует сам (`~/.fusion_scanner/metadata.duckdb`, срок — его по умолчанию): повторный запрос не стоит вызова BI Publisher.
+
 **`GET /v1/queries?workbook=<id>`** → `{ queries: QuerySummary[] }` — проекты, примеры и (если передан `workbook`) запросы этой книги. Все определения, а не только выбранные по §10.2; порядок — книга, проекты, примеры, внутри — по `id`, затем новые версии первыми.
 
 `QuerySummary` строится из текста определения: `params` и `columns` — из `@param` и `@column`; без `@column` — из `meta.query_schemas` этого хеша, если она есть. `ParamDef.default` для `list<T>` — элементы через `", "`. `ColumnInfo.header` — заголовок из `@column`, иначе имя колонки.

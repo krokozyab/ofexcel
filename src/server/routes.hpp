@@ -66,6 +66,8 @@ void RegisterConnectionRoutes(httplib::Server &server, const RouteContext &conte
 void RegisterQueryRoutes(httplib::Server &server, const RouteContext &context);
 //! /v1/runs*, /v1/datasets*, /v1/preview, /v1/missing (src/server/routes_runs.cpp).
 void RegisterRunRoutes(httplib::Server &server, const RouteContext &context);
+//! /v1/dictionary/tables, /v1/dictionary/columns (src/server/routes_dictionary.cpp).
+void RegisterDictionaryRoutes(httplib::Server &server, const RouteContext &context);
 //! /v1/batch, /v1/catalog (src/server/routes_formulas.cpp).
 void RegisterFormulaRoutes(httplib::Server &server, const RouteContext &context);
 //! /v1/imports* (src/server/routes_imports.cpp).

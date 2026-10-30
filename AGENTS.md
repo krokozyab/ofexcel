@@ -63,6 +63,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_local_runs_test   # Local runs: dependencies, deps modes, meta.missing, types
 ./build/release/extension/ofexcel/ofexcel_imports_test      # /v1/imports*: batches, commit, replace, expiry
 ./build/release/extension/ofexcel/ofexcel_formulas_test     # /v1/batch, cache, Local groups, /v1/catalog, /v1/missing
+./build/release/extension/ofexcel/ofexcel_dictionary_test   # /v1/dictionary/*: filter, limit, columns, errors
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -128,6 +129,7 @@ src/server/routes_queries.cpp  /v1/queries*, /v1/workbooks/{id}/queries, /v1/tru
 src/server/routes_runs.cpp     /v1/runs*, /v1/datasets*, /v1/preview, /v1/missing: start, follow, cancel, rows
 src/server/routes_imports.cpp  /v1/imports*: begin, rows, commit
 src/server/routes_formulas.cpp /v1/batch, /v1/catalog
+src/server/routes_dictionary.cpp /v1/dictionary/*: Fusion tables and columns for the editor
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 test/sql/                   sqllogictests

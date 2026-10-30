@@ -58,6 +58,7 @@ set(EXTENSION_SOURCES
         src/server/routes_runs.cpp
         src/server/routes_imports.cpp
         src/server/routes_formulas.cpp
+        src/server/routes_dictionary.cpp
         src/batch/formulas.cpp
         src/server/routes_addin.cpp
         src/server/routes_probe.cpp
@@ -272,6 +273,15 @@ if(OFEXCEL_BUILD_TESTS)
                              ${OFEXCEL_LINKED_EXTENSION_INCLUDES} ${OFEXCEL_FUSION_SCANNER_SRC}/src)
   target_compile_features(ofexcel_formulas_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_formulas_test COMMAND ofexcel_formulas_test)
+
+  # Fusion's dictionary for the editor over HTTPS (TASKS.md C9), with ofquack's
+  # transport scripted and its metadata cache in a temporary HOME.
+  add_executable(ofexcel_dictionary_test test/cpp/dictionary_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_dictionary_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS} httplib::httplib)
+  target_include_directories(ofexcel_dictionary_test PRIVATE src src/include test/cpp
+                             ${OFEXCEL_LINKED_EXTENSION_INCLUDES} ${OFEXCEL_FUSION_SCANNER_SRC}/src)
+  target_compile_features(ofexcel_dictionary_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_dictionary_test COMMAND ofexcel_dictionary_test)
 
   # `ofexceld serve` as a process: what it prints, the files it leaves, a live
   # HTTPS request. A bash script, so not on Windows.
