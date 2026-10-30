@@ -147,6 +147,8 @@ JsonKind JsonValue::Kind() const {
 	case YYJSON_TYPE_BOOL:
 		return JsonKind::BOOLEAN;
 	case YYJSON_TYPE_NUM:
+	case YYJSON_TYPE_RAW:
+		// Numbers are read as their raw text (JsonDocument::Parse).
 		return JsonKind::NUMBER;
 	case YYJSON_TYPE_STR:
 		return JsonKind::STRING;
@@ -171,6 +173,23 @@ bool JsonValue::Bool() const {
 	return yyjson_is_bool(ValueOf(value)) && yyjson_get_bool(ValueOf(value));
 }
 
+std::string JsonValue::NumberText() const {
+	const auto *raw = yyjson_get_raw(ValueOf(value));
+	return yyjson_is_raw(ValueOf(value)) && raw ? std::string(raw, yyjson_get_len(ValueOf(value))) : "";
+}
+
+std::vector<std::string> JsonValue::Keys() const {
+	std::vector<std::string> keys;
+	if (!yyjson_is_obj(ValueOf(value))) {
+		return keys;
+	}
+	yyjson_obj_iter iterator = yyjson_obj_iter_with(ValueOf(value));
+	while (auto *key = yyjson_obj_iter_next(&iterator)) {
+		keys.emplace_back(yyjson_get_str(key), yyjson_get_len(key));
+	}
+	return keys;
+}
+
 JsonValue JsonValue::Get(const std::string &key) const {
 	if (!yyjson_is_obj(ValueOf(value))) {
 		return JsonValue(nullptr);
@@ -192,7 +211,9 @@ JsonValue JsonValue::At(size_t index) const {
 JsonDocument JsonDocument::Parse(const std::string &text) {
 	JsonDocument parsed;
 	// yyjson rejects invalid UTF-8 unless told otherwise (CONTRACTS.md §1).
-	parsed.doc = yyjson_read(text.data(), text.size(), YYJSON_READ_NOFLAG);
+	// Numbers stay the text they were written as: a parameter value keeps every
+	// digit (CONTRACTS.md §3.1), which a double would not.
+	parsed.doc = yyjson_read(text.data(), text.size(), YYJSON_READ_NUMBER_AS_RAW);
 	if (!parsed.doc) {
 		throw std::invalid_argument("not JSON");
 	}

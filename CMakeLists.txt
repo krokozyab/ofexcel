@@ -49,6 +49,7 @@ set(EXTENSION_SOURCES
         src/server/routes_health.cpp
         src/server/routes_connections.cpp
         src/server/routes_queries.cpp
+        src/server/routes_runs.cpp
         src/server/routes_addin.cpp
         src/server/routes_probe.cpp
 )
@@ -227,6 +228,15 @@ if(OFEXCEL_BUILD_TESTS)
                              ${OFEXCEL_FUSION_SCANNER_SRC}/src)
   target_compile_features(ofexcel_runs_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_runs_test COMMAND ofexcel_runs_test)
+
+  # Trust (TASKS.md C2) and the run and dataset routes (TASKS.md C4) over HTTPS,
+  # with ofquack's transport scripted.
+  add_executable(ofexcel_runs_api_test test/cpp/runs_api_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_runs_api_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS} httplib::httplib)
+  target_include_directories(ofexcel_runs_api_test PRIVATE src src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES}
+                             ${OFEXCEL_FUSION_SCANNER_SRC}/src)
+  target_compile_features(ofexcel_runs_api_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_runs_api_test COMMAND ofexcel_runs_api_test)
 
   # `ofexceld serve` as a process: what it prints, the files it leaves, a live
   # HTTPS request. A bash script, so not on Windows.

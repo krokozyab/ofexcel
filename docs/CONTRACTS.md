@@ -773,9 +773,10 @@ type RowsPage = {
 
 **`GET /v1/queries/{id}?source_kind=&source_ref=&workbook=`** → `QuerySummary & { text: string }`. Без `source_kind` — определение, которое выбирает §10.2 (запросы книги `workbook` первыми, если она передана); с `source_kind` (и `source_ref`, если передан) — наибольшая версия в этом источнике. Нет — 404 `E_NOT_FOUND`; `source_kind` не `project`/`workbook`/`example` — 422 `E_BAD_REQUEST`.
 
-**`PUT /v1/queries/{id}`** `{ project: string; text: string }` → 200 `QuerySummary`. Пишет файл `<каталог проектов>/<project>/queries/<id>.sql` (через временный файл и переименование; каталоги создаются), заново читает этот проект и регистрирует определение. Добавление хеша в `meta.trusted_definitions` с `origin = 'local_editor'` — задача C2. `@id` в тексте ≠ `{id}` или заголовок не разбирается — 422 `E_QUERY_PARSE`, в `details.errors` — ошибки разбора `{code, message, line?}`; файл не пишется. Другой файл проекта с тем же `@id` и `@version`, но другим текстом — 422 `E_QUERY_PARSE`, файл не пишется. `{id}` не по §1 или имя проекта не по §1 «Пути на диске» — 422 `E_BAD_REQUEST`.
+**`PUT /v1/queries/{id}`** `{ project: string; text: string }` → 200 `QuerySummary`. Пишет файл `<каталог проектов>/<project>/queries/<id>.sql` (через временный файл и переименование; каталоги создаются), заново читает этот проект и регистрирует определение, а хеш добавляет в `meta.trusted_definitions` с `origin = 'local_editor'` (если хеша там ещё нет): тот же текст в книге тоже доверенный. `@id` в тексте ≠ `{id}` или заголовок не разбирается — 422 `E_QUERY_PARSE`, в `details.errors` — ошибки разбора `{code, message, line?}`; файл не пишется. Другой файл проекта с тем же `@id` и `@version`, но другим текстом — 422 `E_QUERY_PARSE`, файл не пишется. `{id}` не по §1 или имя проекта не по §1 «Пути на диске» — 422 `E_BAD_REQUEST`.
 
-**`PUT /v1/workbooks/{workbook_id}/queries`** `{ queries: Array<{ text: string }> }` → `{ queries: QuerySummary[] }` в порядке запроса. Заменяет набор запросов книги в `meta.query_definitions` (`source_kind = 'workbook'`); пустой массив удаляет все. Поле `trusted` показывает, есть ли хеш в `meta.trusted_definitions`. Хеши не доверяются автоматически.
+**`PUT /v1/workbooks/{workbook_id}/queries`** `{ queries: Array<{ text: string }> }` → `{ queries: QuerySummary[] }` в порядке запроса. Заменяет набор запросов книги в `meta.query_definitions` (`source_kind = 'workbook'`); пустой массив удаляет все. Хеши книги не доверяются автоматически.
+- **Доверие** (`trusted` в `QuerySummary` и проверка перед запуском) — свойство хеша: он есть в `meta.trusted_definitions` **или** тот же текст зарегистрирован в проекте или среди примеров. Запросы проектов и встроенные примеры доверенные по источнику (`DECISIONS.md` Р8); при регистрации примеры записываются в `meta.trusted_definitions` с `origin = 'example'`. Подтверждать нужно только тексты книги, которых нет ни в проекте, ни среди примеров (§9.3).
 - Всё или ничего: если хоть один текст не разбирается — 422 `E_QUERY_PARSE`, набор книги не меняется, `details: { queries: Array<{ index: number; errors: Array<{ code; message; line? }> }> }` (`index` — с 0).
 - `workbook_id` — UUID v4 в нижнем регистре (§9.1), иначе 422 `E_BAD_REQUEST`.
 
@@ -806,29 +807,39 @@ type RowsPage = {
   workbook_id?: string; deps?: "missing" | "all" | "none" /* по умолчанию "missing" */; force?: boolean }
 ```
 → 202 `Run`.
-- Недоверенное определение — 403 `E_NOT_TRUSTED`.
+- Определение ищется по `QueryRef`: тот же `hash` и `id` (без учёта регистра) среди запросов книги `workbook_id` (если передана), проектов и примеров — в этом порядке. Нет — 404 `E_NOT_FOUND`.
+- Недоверенное определение — 403 `E_NOT_TRUSTED`; ни запуск, ни экземпляр не создаются. Остальные отказы до запуска — §6.3.
+- Повторный запуск идущего экземпляра — 202 с идущим `Run` (§6.4).
+- `params` — объект; числа JSON читаются своим текстом (§3.1). `deps` — `missing`, `all` или `none`, `force` — boolean; иначе 422 `E_BAD_REQUEST`. Значение-объект у параметра — 422 `E_PARAM_TYPE`.
 - Для local: зависимости запускаются раньше (`deps = all` — все; `missing` — только без `ready`-экземпляра; `none` — не запускаются, а отсутствие даёт `E_DEPENDENCY_MISSING`). Запуски зависимостей получают `parent_run_id`. Ошибка любой зависимости — родительский запуск `failed` с `E_DEPENDENCY_FAILED`.
 - `connection` для oracle: из тела, иначе из `@connection`, иначе 422 `E_BAD_REQUEST`.
 
-**`GET /v1/runs/{run_id}`** → `Run`.
+**`GET /v1/runs/{run_id}`** → `Run`. Нет запуска — 404 `E_NOT_FOUND` (так же у `/cancel` и `/rows`).
 
-**`POST /v1/runs/{run_id}/cancel`** → `Run`. Для завершённого запуска — без изменений. Отмена ДОЛЖНА переводить запуск в `cancelled` не позже чем через 5 с **[Ф0]**.
+`Run` строится из `meta.runs`: `params` — `canonical_params` (§1.2: строки, для `list<T>` — массивы строк); время — `YYYY-MM-DDTHH:MM:SSZ`; `rows_fetched` идущего запуска — сколько строк прочитано на этот момент; `depends_on` у Oracle-запуска пустой; `error` — `{code, message}`, если запуск завершился ошибкой или отменой.
 
-**`GET /v1/runs/{run_id}/rows?offset=0&limit=5000`** → `RowsPage`. Только для `succeeded`, иначе 409 `E_RUN_NOT_FINISHED`. `limit` ≤ 20 000. Читает `result_table` запуска; если она уже вытеснена новой версией — 410 `E_GONE`.
+**`POST /v1/runs/{run_id}/cancel`** → `Run`. Для завершённого запуска — без изменений. Отмена ДОЛЖНА переводить запуск в `cancelled` не позже чем через 5 с **[Ф0]**. Маршрут ждёт окончания запуска до 5 с и отвечает уже его итогом.
 
-**`GET /v1/runs?query=<id>&workbook=<id>&limit=50`** → `{ runs: Run[] }`, новые первыми.
+**`GET /v1/runs/{run_id}/rows?offset=0&limit=5000`** → `RowsPage`. Только для `succeeded`, иначе 409 `E_RUN_NOT_FINISHED`. `limit` — от 1 до 20 000, `offset` ≥ 0, иначе 422 `E_BAD_REQUEST`. Читает `result_table` запуска; если она уже удалена (новая версия вытеснила её из `prev_table`, §6.4, или экземпляр удалён) — 410 `E_GONE`. Предыдущая версия, пока она в `prev_table`, читается.
 
-**`GET /v1/datasets`** → `{ datasets: Array<{ instance_key; query: QueryRef; connection; params; status; fetched_at?; row_count?; truncated?; last_error? }> }`.
+`RowsPage`: строки — в порядке, в котором запуск их сохранил; `total` — число строк таблицы; `truncated` — у запуска (у экземпляра — для `/v1/datasets/…/rows`). Тип колонки — из `meta.query_schemas` этого хеша, если там колонка с тем же именем хранится так же; иначе — по типу хранения (`BIGINT` → `integer`, `DECIMAL(p,s)` → `decimal(p,s)`, `DOUBLE` → `number`, `DATE`, `TIMESTAMP`, `BOOLEAN` — одноимённые, остальное — `string`): схема в `meta.query_schemas` — последнего запуска, а старая версия могла иметь более узкий тип (§3.3 п. 4). `header` — из `@column`, иначе имя. Значения — по §3.2 (`EncodeJsonValue`). Чтение строк обновляет `last_access_at` экземпляра.
 
-**`GET /v1/datasets/{instance_key}/rows?offset=&limit=`** → `RowsPage` по `current_table`; `status = 'empty'` — 409 `E_DEPENDENCY_MISSING`.
+**`GET /v1/runs?query=<id>&workbook=<id>&limit=50`** → `{ runs: Run[] }`, новые первыми. `query` — без учёта регистра; `limit` — от 1 до 1000, иначе 422 `E_BAD_REQUEST`.
 
-**`DELETE /v1/datasets/{instance_key}`** → 204.
+**`GET /v1/datasets`** → `{ datasets: Array<{ instance_key; query: QueryRef; connection; params; status; fetched_at?; row_count?; truncated?; last_error? }> }` — по `query_id`, затем `instance_key`; `last_error` — `{code, message}`.
+
+**`GET /v1/datasets/{instance_key}/rows?offset=&limit=`** → `RowsPage` по `current_table`; `status = 'empty'` — 409 `E_DEPENDENCY_MISSING`; нет экземпляра — 404 `E_NOT_FOUND`.
+
+**`DELETE /v1/datasets/{instance_key}`** → 204. Удаляет таблицы `current_table` и `prev_table` и строку экземпляра, увеличивает `data_version`. Запуски остаются в истории, их строки — 410 `E_GONE`. Экземпляр обновляется — 409 `E_CONFLICT`; нет экземпляра — 404 `E_NOT_FOUND`. Реализация маршрутов — `src/server/routes_runs.cpp`.
 
 **`POST /v1/imports`** `{ name: string; workbook_id: string; source: string; columns: Array<{ name: string; type: string }> }` → 201 `{ import_id: string }`. Типы колонок — из §3.2, кроме `timestamptz`.
 **`POST /v1/imports/{import_id}/rows`** `{ rows: unknown[][] }` → 204. Значения — в кодировке §3.2 (даты — строками).
 **`POST /v1/imports/{import_id}/commit`** → 200 `{ name; rows: number }`. Атомарно заменяет `xl_import."<name>"`, увеличивает `data_version`. Незакоммиченный импорт удаляется через 10 минут.
 
-**`POST /v1/trust`** `{ workbook_id: string; hashes: string[] }` → `{ trusted: string[] }`. Пишет `origin = 'user_consent'`. Хеш, которого нет среди запросов книги, — 422 `E_BAD_REQUEST`.
+**`POST /v1/trust`** `{ workbook_id: string; hashes: string[] }` → `{ trusted: string[] }`. Пишет `origin = 'user_consent'` и `workbook_id`. Хеш, которого нет среди запросов книги, — 422 `E_BAD_REQUEST`.
+- Всё или ничего: при отказе не доверяется ни один хеш.
+- В ответе — хеши запроса, каждый один раз, в его порядке. Хеш, уже доверенный, сохраняет прежний `origin`.
+- `workbook_id` — UUID v4 (§9.1), `hashes` — массив строк; иначе 422 `E_BAD_REQUEST`.
 
 **`POST /v1/batch`** — §10.3.
 

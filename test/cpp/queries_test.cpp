@@ -209,7 +209,7 @@ void TestSummary(Daemon &daemon) {
 	                   "Business unit\"},{\"name\":\"ids\",\"type\":\"list<id>\",\"default\":\"1, 2\"}],"
 	                   "\"columns\":[{\"name\":\"ACCOUNT\",\"header\":\"Account\",\"type\":\"id\"},"
 	                   "{\"name\":\"AMT\",\"header\":\"AMT\",\"type\":\"decimal(18,2)\"}],"
-	                   "\"source\":{\"kind\":\"project\",\"ref\":\"fin\"},\"trusted\":false}"));
+	                   "\"source\":{\"kind\":\"project\",\"ref\":\"fin\"},\"trusted\":true}"));
 	// Projects come before examples; nothing from a workbook without ?workbook.
 	CHECK(!Contains(list->body, "\"kind\":\"workbook\""));
 }

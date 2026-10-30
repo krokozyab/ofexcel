@@ -59,6 +59,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_connections_test  # connections, secrets after restart, sign-in
 ./build/release/extension/ofexcel/ofexcel_queries_test      # query registry: projects, workbooks, resolution
 ./build/release/extension/ofexcel/ofexcel_runs_test         # Oracle runs through the fake transport: types, limits, cancel
+./build/release/extension/ofexcel/ofexcel_runs_api_test     # trust, /v1/runs*, /v1/datasets* over HTTPS
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -113,7 +114,8 @@ src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB
 src/server/http_server.cpp  HTTPS server lifecycle, guard, CORS, error fallbacks
 src/server/routes.hpp       what a route file needs
 src/server/routes_*.cpp     one file per route group; routes_addin.cpp serves /addin/* (local profile)
-src/server/routes_queries.cpp  /v1/queries*, /v1/workbooks/{id}/queries
+src/server/routes_queries.cpp  /v1/queries*, /v1/workbooks/{id}/queries, /v1/trust
+src/server/routes_runs.cpp     /v1/runs*, /v1/datasets*: start, follow, cancel, rows pages
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 test/sql/                   sqllogictests

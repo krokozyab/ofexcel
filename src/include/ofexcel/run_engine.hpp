@@ -9,6 +9,7 @@
 #include "ofexcel/param_values.hpp"
 #include "ofexcel/query_registry.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <map>
@@ -54,14 +55,17 @@ public:
 	//! Checks the request, renders the SQL, writes the run's row to meta.runs
 	//! and the instance's to meta.dataset_instances, and starts reading in the
 	//! background. Throws ApiError for a request that cannot run:
-	//! E_QUERY_PARSE, E_UNSUPPORTED (a local query, TASKS.md C5), E_BAD_REQUEST
-	//! (no connection), E_NOT_FOUND (no such connection), E_PARAM_* and
-	//! E_SQL_* from rendering, E_CONFLICT with `force`.
+	//! E_QUERY_PARSE, E_NOT_TRUSTED (403, SPEC.md §8.3), E_UNSUPPORTED (a local
+	//! query, TASKS.md C5), E_BAD_REQUEST (no connection), E_NOT_FOUND (no such
+	//! connection), E_PARAM_* and E_SQL_* from rendering, E_CONFLICT with `force`.
 	RunStart Start(duckdb::DatabaseInstance &db, const RunRequest &request);
 
 	//! Returns once the run has finished and its row in meta.runs says how.
 	//! Returns at once for a run that is not going.
 	void Wait(const std::string &run_id);
+
+	//! Wait for at most `timeout`; true if the run is not going any more.
+	bool WaitFor(const std::string &run_id, std::chrono::milliseconds timeout);
 
 	//! Interrupts the run; it ends as cancelled with E_CANCELLED, keeping the
 	//! instance's current version. False if the run is not going.
@@ -71,6 +75,9 @@ public:
 	int64_t RowsFetched(const std::string &run_id);
 
 	size_t ActiveRuns();
+
+	//! A run of this instance is going.
+	bool InstanceBusy(const std::string &instance_key);
 
 	struct Active;
 

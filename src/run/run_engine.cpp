@@ -602,6 +602,16 @@ RunStart RunEngine::Start(duckdb::DatabaseInstance &db, const RunRequest &reques
 		               "Query " + definition.query_id + " cannot be parsed: " + parsed.errors[0].ToString());
 	}
 	const auto &header = parsed.header;
+	duckdb::Connection connection(db);
+	// Before anything else about the run: an untrusted text is not rendered, and
+	// no run or instance is recorded for it (SPEC.md §8.3). The hash is the
+	// text's own, whatever the caller says it is.
+	auto checked = definition;
+	checked.definition_hash = DefinitionHash(definition.text);
+	if (!IsDefinitionTrusted(connection, checked)) {
+		throw ApiError("E_NOT_TRUSTED", 403,
+		               "Query " + header.id + " is not trusted. Confirm the workbook's queries before running them");
+	}
 	if (header.engine == Engine::LOCAL) {
 		throw ApiError("E_UNSUPPORTED", 422, "Local queries cannot be run yet: " + header.id);
 	}
@@ -610,7 +620,6 @@ RunStart RunEngine::Start(duckdb::DatabaseInstance &db, const RunRequest &reques
 		throw ApiError("E_BAD_REQUEST", 422,
 		               "No connection given: pass connection or declare @connection in query " + header.id);
 	}
-	duckdb::Connection connection(db);
 	if (!FusionSecretExists(connection, connection_name)) {
 		throw ApiError("E_NOT_FOUND", 404, "No connection " + connection_name);
 	}
@@ -621,7 +630,7 @@ RunStart RunEngine::Start(duckdb::DatabaseInstance &db, const RunRequest &reques
 
 	auto plan = std::make_shared<Plan>();
 	plan->query_id = header.id;
-	plan->definition_hash = DefinitionHash(definition.text);
+	plan->definition_hash = checked.definition_hash;
 	plan->connection = connection_name;
 	plan->rendered_sql = rendered.rendered;
 	plan->declared = header.columns;
@@ -710,6 +719,11 @@ void RunEngine::Wait(const std::string &run_id) {
 	idle.wait(lock, [&]() { return by_run.find(run_id) == by_run.end(); });
 }
 
+bool RunEngine::WaitFor(const std::string &run_id, std::chrono::milliseconds timeout) {
+	std::unique_lock<std::mutex> lock(mutex);
+	return idle.wait_for(lock, timeout, [&]() { return by_run.find(run_id) == by_run.end(); });
+}
+
 bool RunEngine::Cancel(const std::string &run_id) {
 	std::lock_guard<std::mutex> lock(mutex);
 	const auto found = by_run.find(run_id);
@@ -728,6 +742,11 @@ int64_t RunEngine::RowsFetched(const std::string &run_id) {
 	std::lock_guard<std::mutex> lock(mutex);
 	const auto found = by_run.find(run_id);
 	return found == by_run.end() ? -1 : found->second->rows.load();
+}
+
+bool RunEngine::InstanceBusy(const std::string &instance_key) {
+	std::lock_guard<std::mutex> lock(mutex);
+	return by_instance.find(instance_key) != by_instance.end();
 }
 
 size_t RunEngine::ActiveRuns() {

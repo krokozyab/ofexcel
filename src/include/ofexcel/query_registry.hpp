@@ -20,6 +20,11 @@ constexpr const char *SOURCE_EXAMPLE = "example";
 //! source_ref of every example.
 constexpr const char *EXAMPLES_REF = "builtin";
 
+//! meta.trusted_definitions.origin (CONTRACTS.md §6.2).
+constexpr const char *TRUST_LOCAL_EDITOR = "local_editor";
+constexpr const char *TRUST_USER_CONSENT = "user_consent";
+constexpr const char *TRUST_EXAMPLE = "example";
+
 //! A query file larger than this is refused rather than read: a definition is
 //! a header and one statement.
 constexpr size_t MAX_QUERY_FILE_BYTES = 1024 * 1024;
@@ -33,8 +38,8 @@ struct QueryDefinition {
 	std::string source_kind; //!< SOURCE_PROJECT, SOURCE_WORKBOOK or SOURCE_EXAMPLE
 	std::string source_ref;  //!< project name, workbook_id or EXAMPLES_REF
 	std::string text;        //!< the file as given
-	//! The hash is in meta.trusted_definitions. Read only: granting trust is
-	//! TASKS.md C2.
+	//! May run without asking (SPEC.md §8.3): its hash is in
+	//! meta.trusted_definitions, or a project or the examples have the same text.
 	bool trusted = false;
 };
 
@@ -113,6 +118,23 @@ bool FindDefinitionByHash(duckdb::Connection &connection, const std::string &def
 //! meta.query_definitions for ofexcel_queries(), in ListDefinitions' order
 //! with every workbook included.
 std::vector<QueryDefinition> AllDefinitions(duckdb::Connection &connection);
+
+//! POST /v1/trust: trusts `hashes` with origin user_consent. All or nothing:
+//! a hash that is not among the workbook's queries throws ApiError
+//! E_BAD_REQUEST (422) and trusts none. A hash trusted already keeps its
+//! origin. Returns the hashes, each once, in the order given.
+std::vector<std::string> TrustWorkbookQueries(duckdb::Connection &connection, const std::string &workbook_id,
+                                              const std::vector<std::string> &hashes);
+
+//! Whether `definition` may run (SPEC.md §8.3), asked of the database now
+//! rather than taken from `definition.trusted`: by hash, like `trusted`.
+bool IsDefinitionTrusted(duckdb::Connection &connection, const QueryDefinition &definition);
+
+//! A QueryRef {id, hash}: the definition with this hash and id (without regard
+//! to case) among the workbook's queries, projects and examples, in that order.
+//! False if there is none.
+bool FindDefinition(duckdb::Connection &connection, const std::string &query_id, const std::string &definition_hash,
+                    const std::string &workbook_id, QueryDefinition &found);
 
 //! catalog_version for the registry as it is: the first 16 hex digits of
 //! SHA-256 over every (source_kind, source_ref, query_id, definition_hash),

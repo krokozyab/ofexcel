@@ -131,6 +131,10 @@ void WriteFile(const std::string &path, const std::string &content) {
 
 std::string directory_path;
 
+struct Daemon;
+//! The daemon the tests talk to now; Request trusts its texts there.
+Daemon *current_daemon = nullptr;
+
 //! The database as serve prepares it, with a secret named fusion that the fake
 //! transport answers for. `init` is added to init.sql.
 struct Daemon {
@@ -149,6 +153,7 @@ struct Daemon {
 		options.init_file = init_file;
 		prepared = ofexcel::PrepareDaemonDatabase(options);
 		connection = std::make_unique<duckdb::Connection>(*prepared.db);
+		current_daemon = this;
 	}
 
 	std::string Value(const std::string &sql) {
@@ -175,7 +180,8 @@ std::string Query(const std::string &id, const std::string &extra, const std::st
 	return "-- @id: " + id + "\n-- @engine: oracle\n-- @version: 1\n-- @connection: fusion\n" + extra + body + "\n";
 }
 
-ofexcel::RunRequest Request(const std::string &text, std::map<std::string, ofexcel::ParamInput> params = {}) {
+//! A request for `text` as it is, trusted or not.
+ofexcel::RunRequest Untrusted(const std::string &text, std::map<std::string, ofexcel::ParamInput> params = {}) {
 	ofexcel::RunRequest request;
 	const auto parsed = ofexcel::ParseQueryFile(text);
 	CHECK(parsed.Ok());
@@ -184,6 +190,16 @@ ofexcel::RunRequest Request(const std::string &text, std::map<std::string, ofexc
 	request.definition.text = text;
 	request.params = std::move(params);
 	return request;
+}
+
+//! A request for `text`, trusted as the editor would trust it (SPEC.md §8.3):
+//! these texts are registered nowhere.
+ofexcel::RunRequest Request(const std::string &text, std::map<std::string, ofexcel::ParamInput> params = {}) {
+	CHECK(current_daemon);
+	RunOk(*current_daemon->connection, "INSERT INTO meta.trusted_definitions VALUES ('" + ofexcel::DefinitionHash(text) +
+	                                       "', 'test', 'local_editor', NULL, TIMESTAMP '2026-01-01 00:00:00') "
+	                                       "ON CONFLICT DO NOTHING");
+	return Untrusted(text, std::move(params));
 }
 
 std::string StartAndWait(Daemon &daemon, const ofexcel::RunRequest &request) {
@@ -475,6 +491,8 @@ void TestRefusedRequests(Daemon &daemon) {
 		}
 	};
 	const auto runs = daemon.Value("SELECT count(*) FROM meta.runs");
+	// A text no project, example or confirmation vouches for (SPEC.md §8.3).
+	refused(Untrusted(Query("stranger", "", "SELECT 1 FROM dual")), "E_NOT_TRUSTED");
 	refused(Request(DATED, {{"d", ofexcel::ParamInput::Number("12")}}), "E_PARAM_TYPE");
 	auto elsewhere = Request(INVOICES);
 	elsewhere.connection = "nowhere";

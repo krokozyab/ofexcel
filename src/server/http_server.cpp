@@ -147,6 +147,7 @@ void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterHealthRoutes(server, context);
 	RegisterConnectionRoutes(server, context);
 	RegisterQueryRoutes(server, context);
+	RegisterRunRoutes(server, context);
 	if (context.options.guard.profile == Profile::LOCAL) {
 		RegisterAddinRoutes(server, context);
 	}

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ofexcel {
 
@@ -80,6 +81,11 @@ public:
 	std::string String() const;
 	//! false unless Kind() is BOOLEAN.
 	bool Bool() const;
+	//! The number as written in the request ("204", "-1.5", "1e+21"); "" unless
+	//! Kind() is NUMBER.
+	std::string NumberText() const;
+	//! The keys of an object, in document order; empty for anything else.
+	std::vector<std::string> Keys() const;
 	JsonValue Get(const std::string &key) const;
 	//! Elements of an array; 0 for anything else.
 	size_t Size() const;

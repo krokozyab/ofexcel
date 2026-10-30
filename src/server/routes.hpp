@@ -62,8 +62,10 @@ constexpr size_t ADDIN_PREFIX_LENGTH = 7;
 void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context);
 //! /v1/status, /v1/connections*, /v1/auth/* (src/server/routes_connections.cpp).
 void RegisterConnectionRoutes(httplib::Server &server, const RouteContext &context);
-//! /v1/queries*, /v1/workbooks/{id}/queries (src/server/routes_queries.cpp).
+//! /v1/queries*, /v1/workbooks/{id}/queries, /v1/trust (src/server/routes_queries.cpp).
 void RegisterQueryRoutes(httplib::Server &server, const RouteContext &context);
+//! /v1/runs*, /v1/datasets* (src/server/routes_runs.cpp).
+void RegisterRunRoutes(httplib::Server &server, const RouteContext &context);
 //! Local profile only: GET /addin/*, with the session token in every HTML page.
 void RegisterAddinRoutes(httplib::Server &server, const RouteContext &context);
 //! Phase 0 only; registered when ServerOptions::probe_routes is set.

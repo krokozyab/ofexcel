@@ -8,6 +8,7 @@
 #include "ofexcel/fusion_errors.hpp"
 #include "ofexcel/json_body.hpp"
 #include "ofexcel/query_file.hpp"
+#include "ofexcel/run_engine.hpp"
 
 #include <functional>
 #include <iostream>
@@ -87,7 +88,7 @@ void Status(const httplib::Request &, httplib::Response &response, duckdb::Conne
 		connections.AddObject(item);
 	}
 	// Runs arrive with the run engine (TASKS.md C3); until then there are none.
-	body.Set("active_runs", int64_t(0));
+	body.Set("active_runs", static_cast<int64_t>(RunEngine::Get().ActiveRuns()));
 	body.SetArray("warnings");
 	SendJson(response, 200, body.Serialize());
 }

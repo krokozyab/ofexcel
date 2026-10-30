@@ -123,7 +123,9 @@ void ReplaceSource(duckdb::Connection &connection, const char *kind, const std::
 
 const char *const DEFINITION_COLUMNS =
     "SELECT d.definition_hash, d.query_id, d.version, d.engine, d.source_kind, d.source_ref, d.text, "
-    "EXISTS (SELECT 1 FROM meta.trusted_definitions t WHERE t.definition_hash = d.definition_hash) "
+    "(d.definition_hash IN (SELECT definition_hash FROM meta.trusted_definitions) OR "
+    "d.definition_hash IN (SELECT definition_hash FROM meta.query_definitions "
+    "WHERE source_kind IN ('project', 'example'))) "
     "FROM meta.query_definitions d ";
 
 //! Workbook, then projects, then examples (§10.2); newest version first; ties
@@ -304,6 +306,18 @@ bool IsUuidV4(const std::string &text) {
 	return true;
 }
 
+//! Adds `hash` to meta.trusted_definitions unless it is there already: the
+//! first origin stays.
+void GrantTrust(duckdb::Connection &connection, const std::string &hash, const std::string &query_id,
+                const char *origin, const std::string &workbook_id) {
+	QueryRows(connection,
+	          "INSERT INTO meta.trusted_definitions VALUES ($1, $2, $3, $4, $5) "
+	          "ON CONFLICT (definition_hash) DO NOTHING",
+	          {duckdb::Value(hash), duckdb::Value(query_id), duckdb::Value(origin),
+	           workbook_id.empty() ? duckdb::Value(duckdb::LogicalType::VARCHAR) : duckdb::Value(workbook_id),
+	           duckdb::Value::TIMESTAMP(duckdb::Timestamp::GetCurrentTimestamp())});
+}
+
 QueryDefinition DefinitionOf(duckdb::Connection &connection, const char *kind, const std::string &ref,
                              const std::string &hash) {
 	const auto rows = QueryRows(connection,
@@ -479,6 +493,9 @@ QueryDefinition SaveProjectQuery(duckdb::Connection &connection, const std::stri
 	std::vector<std::pair<std::string, Parsed>> parsed;
 	ScanProject(project_dir, project, entries, parsed);
 	ReplaceSource(connection, SOURCE_PROJECT, project, parsed);
+	// Written in the editor on this machine (SPEC.md §8.3): the same text in a
+	// workbook is trusted too.
+	GrantTrust(connection, hash, query_id, TRUST_LOCAL_EDITOR, "");
 	return DefinitionOf(connection, SOURCE_PROJECT, project, hash);
 }
 
@@ -538,6 +555,9 @@ void RegisterExamples(duckdb::Connection &connection, const std::vector<QueryTex
 		rows.emplace_back(EXAMPLES_REF, item);
 	}
 	ReplaceSource(connection, SOURCE_EXAMPLE, EXAMPLES_REF, rows);
+	for (const auto &item : parsed) {
+		GrantTrust(connection, item.hash, item.header.id, TRUST_EXAMPLE, "");
+	}
 }
 
 std::vector<QueryDefinition> ListDefinitions(duckdb::Connection &connection, const std::string &workbook_id) {
@@ -577,6 +597,63 @@ bool FindDefinitionByHash(duckdb::Connection &connection, const std::string &def
 	const auto rows =
 	    QueryRows(connection, std::string(DEFINITION_COLUMNS) + "WHERE d.definition_hash = $1" + DEFINITION_ORDER + " LIMIT 1",
 	              {duckdb::Value(definition_hash)});
+	if (rows.empty()) {
+		return false;
+	}
+	found = ToDefinition(rows[0]);
+	return true;
+}
+
+std::vector<std::string> TrustWorkbookQueries(duckdb::Connection &connection, const std::string &workbook_id,
+                                              const std::vector<std::string> &hashes) {
+	if (!IsUuidV4(workbook_id)) {
+		throw ApiError("E_BAD_REQUEST", 422, "The workbook id must be a lowercase UUID v4");
+	}
+	std::vector<std::string> unique;
+	for (const auto &hash : hashes) {
+		if (std::find(unique.begin(), unique.end(), hash) == unique.end()) {
+			unique.push_back(hash);
+		}
+	}
+	std::lock_guard<std::mutex> guard(RegistryLock());
+	InTransaction(connection, [&]() {
+		for (const auto &hash : unique) {
+			const auto rows = QueryRows(connection,
+			                            "SELECT query_id FROM meta.query_definitions WHERE source_kind = 'workbook' "
+			                            "AND source_ref = $1 AND definition_hash = $2",
+			                            {duckdb::Value(workbook_id), duckdb::Value(hash)});
+			if (rows.empty()) {
+				// Only a text the workbook showed the user can be confirmed, never
+				// an arbitrary hash.
+				throw ApiError("E_BAD_REQUEST", 422,
+				               "Hash " + hash + " is not among the queries of workbook " + workbook_id);
+			}
+			GrantTrust(connection, hash, rows[0][0].ToString(), TRUST_USER_CONSENT, workbook_id);
+		}
+	});
+	return unique;
+}
+
+bool IsDefinitionTrusted(duckdb::Connection &connection, const QueryDefinition &definition) {
+	// By hash, as everywhere: the same text in a workbook and in a project is
+	// one definition, trusted through the project.
+	return !QueryRows(connection,
+	                  "SELECT 1 FROM meta.trusted_definitions WHERE definition_hash = $1 UNION ALL "
+	                  "SELECT 1 FROM meta.query_definitions WHERE definition_hash = $1 "
+	                  "AND source_kind IN ('project', 'example')",
+	                  {duckdb::Value(definition.definition_hash)})
+	            .empty();
+}
+
+bool FindDefinition(duckdb::Connection &connection, const std::string &query_id, const std::string &definition_hash,
+                    const std::string &workbook_id, QueryDefinition &found) {
+	const auto rows = QueryRows(connection,
+	                            std::string(DEFINITION_COLUMNS) +
+	                                "WHERE d.query_id = lower($1) AND d.definition_hash = $2 AND "
+	                                "((d.source_kind = 'workbook' AND d.source_ref = $3) "
+	                                "OR d.source_kind IN ('project', 'example'))" +
+	                                DEFINITION_ORDER + " LIMIT 1",
+	                            {duckdb::Value(query_id), duckdb::Value(definition_hash), duckdb::Value(workbook_id)});
 	if (rows.empty()) {
 		return false;
 	}

@@ -161,6 +161,30 @@ void PutWorkbookRoute(const httplib::Request &request, httplib::Response &respon
 	SendSummaries(response, connection, RegisterWorkbook(connection, request.matches[1].str(), texts));
 }
 
+//! POST /v1/trust: the user confirmed these hashes of the workbook (§9.3).
+void TrustRoute(const httplib::Request &request, httplib::Response &response, duckdb::Connection &connection) {
+	const auto document = ParseBody(request);
+	const auto body = document.Root();
+	const auto workbook_id = RequiredString(body, "workbook_id");
+	const auto hashes = body.Get("hashes");
+	if (!hashes.Is(JsonKind::ARRAY)) {
+		throw ApiError("E_BAD_REQUEST", 422, "The request body has no hashes array");
+	}
+	std::vector<std::string> requested;
+	for (size_t i = 0; i < hashes.Size(); i++) {
+		if (!hashes.At(i).Is(JsonKind::STRING)) {
+			throw ApiError("E_BAD_REQUEST", 422, "hashes must be an array of strings");
+		}
+		requested.push_back(hashes.At(i).String());
+	}
+	JsonObject trusted_body;
+	auto trusted = trusted_body.SetArray("trusted");
+	for (const auto &hash : TrustWorkbookQueries(connection, workbook_id, requested)) {
+		trusted.AddString(hash);
+	}
+	SendJson(response, 200, trusted_body.Serialize());
+}
+
 struct Problem {
 	std::string code;
 	std::string message;
@@ -246,6 +270,7 @@ void RegisterQueryRoutes(httplib::Server &server, const RouteContext &context) {
 		           PutRoute(request, response, connection, projects_dir);
 	           }));
 	server.Put(R"(/v1/workbooks/([^/]+)/queries)", WithConnection(context, PutWorkbookRoute));
+	server.Post("/v1/trust", WithConnection(context, TrustRoute));
 }
 
 } // namespace ofexcel
