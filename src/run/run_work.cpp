@@ -41,6 +41,16 @@ int64_t RunTimeoutSetting(duckdb::Connection &connection) {
 	return seconds > 0 ? seconds : DEFAULT_RUN_TIMEOUT_SECONDS;
 }
 
+duckdb::Value FusionUser(duckdb::Connection &connection, const std::string &connection_name) {
+	const auto outcome = TryQueryRows(connection, "SELECT subject FROM fusion_scanner_sso_status(secret := $1)",
+	                                  {duckdb::Value(connection_name)});
+	if (!outcome.Ok() || outcome.rows.empty() || outcome.rows[0][0].IsNull() ||
+	    outcome.rows[0][0].ToString().empty()) {
+		return duckdb::Value(duckdb::LogicalType::VARCHAR);
+	}
+	return outcome.rows[0][0];
+}
+
 void Watch(RunEngine::Active &run, int64_t timeout_seconds) {
 	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
 	std::unique_lock<std::mutex> lock(run.mutex);
@@ -303,6 +313,88 @@ void RunWork::DropTable(const std::string &table) {
 	} catch (const std::exception &error) {
 		std::cerr << "ofexceld: table ds." << table << " not dropped: " << duckdb::ErrorData(error).Message()
 		          << std::endl;
+	}
+}
+
+WatchedReader::WatchedReader(int64_t timeout_seconds_p)
+    : timeout_seconds(timeout_seconds_p), watchdog([this]() { Watch(active, timeout_seconds); }) {
+}
+
+WatchedReader::~WatchedReader() {
+	{
+		std::lock_guard<std::mutex> lock(active.mutex);
+		active.done = true;
+	}
+	active.changed.notify_all();
+	watchdog.join();
+}
+
+void WatchedReader::SetReader(duckdb::Connection *connection) {
+	std::lock_guard<std::mutex> lock(active.mutex);
+	active.reader = connection;
+}
+
+ReadRows WatchedReader::Read(duckdb::Connection &reader, int64_t limit,
+                             const std::function<duckdb::unique_ptr<duckdb::QueryResult>()> &submit) {
+	SetReader(&reader);
+	struct ClearReader {
+		WatchedReader &self;
+		~ClearReader() {
+			self.SetReader(nullptr);
+		}
+	} clear_reader {*this};
+
+	ReadRows read;
+	auto handle = submit();
+	if (handle->HasError()) {
+		read.error = handle->GetErrorObject();
+		return read;
+	}
+	duckdb::QueryResultStream<> stream(std::move(handle));
+	for (const auto &name : stream.GetNames()) {
+		read.names.push_back(name.GetIdentifierName());
+	}
+	for (const auto &type : stream.GetTypes()) {
+		read.types.push_back(type);
+	}
+	while (!read.truncated) {
+		duckdb::unique_ptr<duckdb::DataChunk> chunk;
+		try {
+			chunk = stream.Fetch();
+		} catch (const std::exception &exception) {
+			read.error = duckdb::ErrorData(exception);
+			break;
+		}
+		if (!chunk) {
+			break;
+		}
+		for (duckdb::idx_t row = 0; row < chunk->size(); row++) {
+			if (static_cast<int64_t>(read.rows.size()) == limit) {
+				read.truncated = true;
+				break;
+			}
+			std::vector<duckdb::Value> values;
+			for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); column++) {
+				values.push_back(chunk->GetValue(column, row));
+			}
+			read.rows.push_back(std::move(values));
+		}
+	}
+	if (read.truncated) {
+		// The rest is not needed: stop the query between chunks, or in one.
+		reader.Interrupt();
+		stream.Close();
+	} else if (!read.error.HasError() && stream.HasError()) {
+		read.error = stream.GetErrorObject();
+	}
+	return read;
+}
+
+void WatchedReader::ThrowIfTimedOut() const {
+	if (active.timed_out) {
+		throw ApiError("E_TIMEOUT", 504,
+		               "Reading the query was stopped: it took longer than " + std::to_string(timeout_seconds) +
+		                   " s (ofexcel_run_timeout)");
 	}
 }
 

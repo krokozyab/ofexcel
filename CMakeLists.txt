@@ -39,6 +39,7 @@ set(EXTENSION_SOURCES
         src/run/run_work.cpp
         src/run/oracle_run.cpp
         src/run/local_run.cpp
+        src/run/local_eval.cpp
         src/run/preview.cpp
         src/run/run_engine.cpp
         src/meta/migrations.cpp
@@ -56,6 +57,8 @@ set(EXTENSION_SOURCES
         src/server/routes_queries.cpp
         src/server/routes_runs.cpp
         src/server/routes_imports.cpp
+        src/server/routes_formulas.cpp
+        src/batch/formulas.cpp
         src/server/routes_addin.cpp
         src/server/routes_probe.cpp
 )
@@ -260,6 +263,15 @@ if(OFEXCEL_BUILD_TESTS)
                              ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
   target_compile_features(ofexcel_imports_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_imports_test COMMAND ofexcel_imports_test)
+
+  # Formulas over HTTPS (TASKS.md C8): /v1/batch, the result cache, Local groups,
+  # /v1/catalog, /v1/missing, with ofquack's transport scripted.
+  add_executable(ofexcel_formulas_test test/cpp/formulas_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_formulas_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS} httplib::httplib)
+  target_include_directories(ofexcel_formulas_test PRIVATE src src/include test/cpp
+                             ${OFEXCEL_LINKED_EXTENSION_INCLUDES} ${OFEXCEL_FUSION_SCANNER_SRC}/src)
+  target_compile_features(ofexcel_formulas_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_formulas_test COMMAND ofexcel_formulas_test)
 
   # `ofexceld serve` as a process: what it prints, the files it leaves, a live
   # HTTPS request. A bash script, so not on Windows.

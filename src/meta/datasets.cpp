@@ -95,6 +95,81 @@ void WriteQuerySchema(duckdb::Connection &connection, const std::string &definit
 	}
 }
 
+namespace {
+
+std::string LowerCase(std::string text) {
+	for (auto &c : text) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return text;
+}
+
+ColumnType TypeOfStorage(const std::string &data_type) {
+	auto lower = LowerCase(data_type);
+	if (lower == "bigint") {
+		lower = "integer";
+	} else if (lower == "double") {
+		lower = "number";
+	} else if (lower != "date" && lower != "timestamp" && lower != "boolean" && lower.rfind("decimal(", 0) != 0) {
+		lower = "string";
+	}
+	ColumnType type;
+	std::string error;
+	if (!ParseColumnType(lower, type, error)) {
+		type = ColumnType();
+	}
+	return type;
+}
+
+} // namespace
+
+std::vector<SchemaColumn> StoredSchema(duckdb::Connection &connection, const std::string &table,
+                                       const std::string &definition_hash) {
+	const auto stored = QueryRows(connection,
+	                              "SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = "
+	                              "current_database() AND schema_name = 'ds' AND table_name = $1 ORDER BY column_index",
+	                              {duckdb::Value(table)});
+	const auto known = ReadQuerySchema(connection, definition_hash);
+	std::vector<SchemaColumn> columns;
+	for (const auto &row : stored) {
+		SchemaColumn column;
+		column.name = row[0].ToString();
+		const auto data_type = row[1].ToString();
+		column.type = TypeOfStorage(data_type);
+		for (const auto &schema : known) {
+			if (LowerCase(schema.name) == LowerCase(column.name) && StorageType(schema.type).ToString() == data_type) {
+				column.type = schema.type;
+				column.header = schema.header;
+				break;
+			}
+		}
+		columns.push_back(std::move(column));
+	}
+	return columns;
+}
+
+void RecordMissing(duckdb::Connection &connection, const std::string &workbook_id,
+                   const std::vector<MissingInstance> &missing) {
+	if (workbook_id.empty() || missing.empty()) {
+		return;
+	}
+	std::lock_guard<std::mutex> guard(MetaWriteLock());
+	InTransaction(connection, [&]() {
+		const auto now = duckdb::Value::TIMESTAMP(duckdb::Timestamp::GetCurrentTimestamp());
+		for (const auto &entry : missing) {
+			QueryRows(connection,
+			          "INSERT INTO meta.missing (workbook_id, instance_key, query_id, definition_hash, "
+			          "connection_name, params_json, first_seen, last_seen, requests) "
+			          "VALUES ($1, $2, $3, $4, $5, $6, $7, $7, 1) "
+			          "ON CONFLICT (workbook_id, instance_key) DO UPDATE SET last_seen = excluded.last_seen, "
+			          "requests = requests + 1",
+			          {duckdb::Value(workbook_id), duckdb::Value(entry.instance_key), duckdb::Value(entry.query_id),
+			           duckdb::Value(entry.definition_hash), duckdb::Value(entry.connection_name),
+			           duckdb::Value(entry.params_json), now});
+		}
+	});
+}
+
 std::mutex &MetaWriteLock() {
 	static std::mutex lock;
 	return lock;

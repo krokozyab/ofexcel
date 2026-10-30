@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace ofexcel {
@@ -77,6 +78,10 @@ duckdb::Value Now();
 
 //! ofexcel_run_timeout, in seconds.
 int64_t RunTimeoutSetting(duckdb::Connection &connection);
+
+//! The Fusion user ofquack signed in as on `connection_name`, or NULL when it
+//! does not know.
+duckdb::Value FusionUser(duckdb::Connection &connection, const std::string &connection_name);
 
 //! One @depends of a Local run, as Start resolved it (§5.3).
 struct DependencyPlan {
@@ -198,6 +203,68 @@ private:
 //! Interrupts the run's reader for as long as it is cancelled or past its
 //! deadline, until the run is done.
 void Watch(RunEngine::Active &run, int64_t timeout_seconds);
+
+//! What a query read outside a run returned: at most `limit` rows.
+struct ReadRows {
+	std::vector<std::string> names;
+	std::vector<duckdb::LogicalType> types;
+	std::vector<std::vector<duckdb::Value>> rows;
+	bool truncated = false;
+	duckdb::ErrorData error;
+};
+
+//! A run's watchdog for what reads outside a run (Preview, formulas): it
+//! interrupts the reader once ofexcel_run_timeout has passed.
+class WatchedReader {
+public:
+	explicit WatchedReader(int64_t timeout_seconds);
+	~WatchedReader();
+
+	//! Reads at most `limit` rows, and one more to know whether there are more
+	//! (§5.4), from what `submit` starts on `reader`.
+	ReadRows Read(duckdb::Connection &reader, int64_t limit,
+	              const std::function<duckdb::unique_ptr<duckdb::QueryResult>()> &submit);
+
+	//! E_TIMEOUT if the watchdog stopped a read, whatever error it caused.
+	void ThrowIfTimedOut() const;
+
+private:
+	void SetReader(duckdb::Connection *connection);
+
+	int64_t timeout_seconds;
+	RunEngine::Active active;
+	std::thread watchdog;
+};
+
+//! A Local query's result held in memory: columns typed by §3.4 or @column,
+//! values as §3.2 stores them, as a run would have stored them.
+struct LocalRows {
+	//! header: from @column, else "".
+	std::vector<SchemaColumn> columns;
+	std::vector<std::vector<duckdb::Value>> rows;
+	bool truncated = false;
+	std::vector<RunWarning> warnings;
+};
+
+//! One Local query evaluated outside a run, for one plan after another:
+//! prepared once, on a connection of its own, with each plan's dependencies
+//! as temporary views (local_eval.cpp).
+class LocalEvaluation {
+public:
+	//! `meta` reads meta.*; `header` must outlive the evaluation.
+	LocalEvaluation(duckdb::DatabaseInstance &db, duckdb::Connection &meta, const QueryHeader &header);
+
+	//! At most `limit` rows for `plan` (PlanLocalRun's). Throws ApiError:
+	//! E_DEPENDENCY_MISSING, §14.1 for Local SQL, E_TYPE_DECLARED_MISMATCH,
+	//! E_TIMEOUT.
+	LocalRows Run(const Plan &plan, int64_t limit, WatchedReader &watched);
+
+private:
+	duckdb::Connection &meta;
+	const QueryHeader &header;
+	duckdb::Connection reader;
+	duckdb::unique_ptr<duckdb::PreparedStatement> prepared;
+};
 
 std::unique_ptr<RunWork> OracleWork(duckdb::DatabaseInstance &db, RunEngine::Active &run, const Plan &plan);
 std::unique_ptr<RunWork> LocalWork(duckdb::DatabaseInstance &db, RunEngine::Active &run, const Plan &plan);

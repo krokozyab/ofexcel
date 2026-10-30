@@ -211,53 +211,12 @@ struct PageColumn {
 	ColumnType type;
 };
 
-//! The contract type of a stored column when meta.query_schemas does not say:
-//! the schema there is the latest run's, and an older version may have a
-//! narrower type (§3.3 item 4).
-ColumnType TypeOfStorage(const std::string &data_type) {
-	auto lower = Lower(data_type);
-	if (lower == "bigint") {
-		lower = "integer";
-	} else if (lower == "double") {
-		lower = "number";
-	} else if (lower != "date" && lower != "timestamp" && lower != "boolean" && lower.rfind("decimal(", 0) != 0) {
-		lower = "string";
-	}
-	ColumnType type;
-	std::string error;
-	if (!ParseColumnType(lower, type, error)) {
-		type = ColumnType();
-	}
-	return type;
-}
-
-//! The columns of ds.<table> with their contract types: from the definition's
-//! schema where it matches how the column is stored, from the storage type
-//! otherwise. Empty when the table is gone.
+//! StoredSchema with `header` the column's name where @column gave none.
 std::vector<PageColumn> TableColumns(duckdb::Connection &connection, const std::string &table,
                                      const std::string &definition_hash) {
-	const auto stored = QueryRows(connection,
-	                              "SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = "
-	                              "current_database() AND schema_name = 'ds' AND table_name = $1 ORDER BY column_index",
-	                              {duckdb::Value(table)});
-	const auto schema = ReadQuerySchema(connection, definition_hash);
 	std::vector<PageColumn> columns;
-	for (const auto &row : stored) {
-		PageColumn column;
-		column.name = row[0].ToString();
-		const auto data_type = row[1].ToString();
-		column.type = TypeOfStorage(data_type);
-		column.header = column.name;
-		for (const auto &known : schema) {
-			if (Lower(known.name) == Lower(column.name) && StorageType(known.type).ToString() == data_type) {
-				column.type = known.type;
-				if (!known.header.empty()) {
-					column.header = known.header;
-				}
-				break;
-			}
-		}
-		columns.push_back(std::move(column));
+	for (const auto &column : StoredSchema(connection, table, definition_hash)) {
+		columns.push_back({column.name, column.header.empty() ? column.name : column.header, column.type});
 	}
 	return columns;
 }
@@ -546,6 +505,43 @@ void PreviewRoute(const httplib::Request &request, httplib::Response &response, 
 	SendJson(response, 200, out.Serialize());
 }
 
+// --- /v1/missing -----------------------------------------------------------------
+
+//! Records older than this are dropped when the list is read (§8.3).
+constexpr int64_t MISSING_KEPT_DAYS = 7;
+
+//! What the workbook's formulas and Local runs found missing (§7.5), for
+//! Smart Refresh.
+void MissingRoute(const httplib::Request &request, httplib::Response &response, duckdb::Connection &connection) {
+	const auto workbook_id = UrlParam(request, "workbook");
+	if (!IsUuidV4(workbook_id)) {
+		throw ApiError("E_BAD_REQUEST", 422, "workbook must be the workbook id, a lowercase UUID v4");
+	}
+	{
+		std::lock_guard<std::mutex> guard(MetaWriteLock());
+		QueryRows(connection, "DELETE FROM meta.missing WHERE last_seen < $1::TIMESTAMP - to_days($2::INTEGER)",
+		          {duckdb::Value::TIMESTAMP(duckdb::Timestamp::GetCurrentTimestamp()),
+		           duckdb::Value::BIGINT(MISSING_KEPT_DAYS)});
+	}
+	JsonObject body;
+	auto missing = body.SetArray("missing");
+	for (const auto &row : QueryRows(connection,
+	                                 "SELECT query_id, definition_hash, connection_name, params_json, first_seen, "
+	                                 "last_seen, requests FROM meta.missing WHERE workbook_id = $1 "
+	                                 "ORDER BY query_id, instance_key",
+	                                 {duckdb::Value(workbook_id)})) {
+		JsonObject item;
+		item.Set("query", QueryRef(row[0].ToString(), row[1].ToString()))
+		    .Set("connection", row[2].ToString())
+		    .Set("params", ParamsJson(row[3].ToString()))
+		    .Set("first_seen", IsoTime(row[4]))
+		    .Set("last_seen", IsoTime(row[5]))
+		    .Set("requests", row[6].GetValue<int64_t>());
+		missing.AddObject(item);
+	}
+	SendJson(response, 200, body.Serialize());
+}
+
 // --- /v1/datasets ----------------------------------------------------------------
 
 const char *const DATASET_COLUMNS = "SELECT instance_key, query_id, definition_hash, connection_name, params_json, "
@@ -653,6 +649,7 @@ void RegisterRunRoutes(httplib::Server &server, const RouteContext &context) {
 	server.Post(R"(/v1/runs/([^/]+)/cancel)", WithConnection(context, CancelRunRoute));
 	server.Get(R"(/v1/runs/([^/]+)/rows)", WithConnection(context, RunRowsRoute));
 	server.Post("/v1/preview", WithConnection(context, PreviewRoute));
+	server.Get("/v1/missing", WithConnection(context, MissingRoute));
 	server.Get("/v1/datasets", WithConnection(context, ListDatasetsRoute));
 	server.Get(R"(/v1/datasets/([^/]+)/rows)", WithConnection(context, DatasetRowsRoute));
 	server.Delete(R"(/v1/datasets/([^/]+))", WithConnection(context, DeleteDatasetRoute));

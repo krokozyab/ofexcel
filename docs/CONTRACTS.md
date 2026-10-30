@@ -877,9 +877,9 @@ type RowsPage = {
 
 **`POST /v1/batch`** — §10.3.
 
-**`GET /v1/catalog`** → `{ catalog_version: string; functions: Array<{ id; name; description; params: ParamDef[] }> }`. В MVP — 4 функции ядра (§10.1).
+**`GET /v1/catalog`** → `{ catalog_version: string; functions: Array<{ id; name; description; params: ParamDef[] }> }`. В MVP — 4 функции ядра (§10.1): `params` — `name` и `type` из `parameters` `functions.json`. Тот же `functions.json` отдаёт `/addin/functions.json` (`src/batch/formulas.cpp`).
 
-**`GET /v1/missing?workbook=<id>`** → `{ missing: Array<{ query: QueryRef; connection: string; params: Record<string, ParamValue>; first_seen; last_seen; requests }> }`. Записи старше 7 дней удаляются; запись удаляется после успешного запуска этого `instance_key`.
+**`GET /v1/missing?workbook=<id>`** → `{ missing: Array<{ query: QueryRef; connection: string; params: Record<string, ParamValue>; first_seen; last_seen; requests }> }`. Записи старше 7 дней удаляются; запись удаляется после успешного запуска этого `instance_key`. `workbook` — UUID v4, иначе 422 `E_BAD_REQUEST`. «Старше» — по `last_seen`; удаляются при чтении списка, у всех книг. Порядок — по `query_id`, затем `instance_key`.
 
 **`GET /addin/*`** (только local) — вшитые файлы; `functions.json` — по §10.1.
 
@@ -980,7 +980,9 @@ type Binding = {
 ### 10.3 `/v1/batch`
 ```ts
 // запрос
-{ calls: Array<{ i: number; kind: "table" | "call" | "asof"; query: string; args: unknown[][][] }> }
+{ calls: Array<{ i: number; kind: "table" | "call" | "asof"; query: string; args: unknown[][][] }>;
+  connection?: string;          // подключение книги по умолчанию (DECISIONS.md Р11)
+  date_system?: 1900 | 1904 }   // система дат книги, по умолчанию 1900
 // заголовок X-OF-Workbook: <workbook_id>
 
 // ответ
@@ -991,7 +993,17 @@ type Binding = {
 - `args` — массив аргументов, каждый — матрица (как передаёт Excel).
 - Порядок обработки вызова: разрешение запроса → проверка доверия → нормализация аргументов (§3.1) → `instance_key` → чтение или локальное выполнение.
 - **Кэш результата** (сервер и клиент) по ключу `(kind, query_id, definition_hash, connection_name, canonical_params, data_version экземпляра и всех его зависимостей, user_name)`. Клиент сбрасывает кэш целиком при смене `data_version` или `catalog_version` в ответе или в `/v1/health` (опрос каждые 30 с и при возврате фокуса).
-- **Деление при ошибках** применяется только к локальному выполнению, при `E_SQL_DATA` (§14). Бюджет — не больше 2 × число групп дополнительных выполнений и не больше 2 с на пакет.
+- **Деление при ошибках** применяется только к локальному выполнению, при `E_SQL_DATA` (§14). Бюджет — не больше 2 × число групп дополнительных выполнений и не больше 2 с на пакет. В MVP — по `DECISIONS.md` Р10: группа (вызовы одного Local-запроса) готовится один раз и выполняется для каждого набора аргументов, поэтому делить нечего; `E_SQL_DATA` — ошибка только своих ячеек, любая другая — всех оставшихся ячеек группы, без выполнения остатка.
+
+**Уточнения реализации** (`src/batch/formulas.cpp`, маршрут — `src/server/routes_formulas.cpp`):
+- **Запрос**: `calls` — до 10 000 вызовов; `i` — целое; `args` — массив матриц (массивов строк), ячейка — строка, число, boolean или `null`; `X-OF-Workbook` — UUID v4, если передан. Иначе 422 `E_BAD_REQUEST`. Неизвестный `kind` — ошибка вызова `invalidValue`, а не пакета.
+- **Без книги** (`X-OF-Workbook` нет) запрос ищется в проектах и примерах, а `meta.missing` не пишется.
+- **Аргументы**: больше, чем `@param`, — `invalidValue`; список без непустых ячеек и пустая матрица — пропущенный аргумент.
+- **Источник данных**: есть `ready`-экземпляр (§6.3) — читается он, у Oracle- и у Local-запроса одинаково. Нет у Oracle-запроса — `notAvailable` "No data for <id>: refresh it" и запись в `meta.missing` (у `table` и `call`; у `asof` — без записи). Нет у Local-запроса — он вычисляется по текущим данным зависимостей (как Preview, §8.3, без записи результата); зависимость без данных — `notAvailable` и записи в `meta.missing` по §5.3.
+- **Значения** (§11.4): `id`, `string`, `text` — строки (длиннее 32 767 символов обрезаются); `integer`, `number`, `decimal` — числа; `date`, `timestamp`, `timestamptz` — серийные числа в `date_system`; `boolean` — `true`/`false`; NULL и NaN/±Inf — `""`. `OF.CALL` с NULL — `notAvailable` "The value is empty". `OF.CALL` по результату не 1 × 1 и `OF.TABLE` больше `ofexcel_spill_max_rows` строк — ошибки из §10.2.
+- **`OF.ASOF`** — `fetched_at` экземпляра в локальном времени машины; у вычисляемого Local-запроса — самая ранняя `fetched_at` его зависимостей-запросов и `imported_at` импортов; нет ничего — `notAvailable`.
+- **Кэш сервера** — LRU до 512 результатов и 2 000 000 ячеек. Ключ — `kind`, `date_system`, `query_id`, `definition_hash`, подключение, `canonical_params`, версии данных и пользователь Fusion подключения (у Local — пустой). Версии — `data_version` экземпляра, у вычисляемого Local-запроса — `data_version` каждой зависимости (у импорта — из `meta.imports`). Ошибки не кэшируются.
+- **Коды ошибок** вызова — по колонке «Excel» §14; `E_BAD_REQUEST` вызова — `invalidValue`, `E_GONE` и прочие без колонки — `notAvailable`.
 
 ---
 
@@ -1076,7 +1088,7 @@ type Binding = {
 | `ofexcel_runs()` | `TABLE` колонок `meta.runs` | История, новые первыми |
 | `ofexcel_datasets()` | `TABLE` колонок `meta.dataset_instances` | Экземпляры |
 | `ofexcel_reload()` | `TABLE(source VARCHAR, query_id VARCHAR, ok BOOLEAN, message VARCHAR)` | Перечитать проекты. Строка на каждый файл `*.sql` (расширение без учёта регистра) в порядке имён проектов и файлов: `source` — `<проект>/queries/<файл>`; `query_id` — `@id`, если он годится по §1, иначе NULL; `message` — ошибки через `; ` или NULL. Определения проектов становятся ровно теми, что разобрались |
-| `ofexcel_call(kind VARCHAR, query VARCHAR, args JSON-строка VARCHAR)` | `VARCHAR` (JSON результата вызова) | Тот же путь, что `/v1/batch` |
+| `ofexcel_call(kind VARCHAR, query VARCHAR, args JSON-строка VARCHAR)` | `VARCHAR` (JSON результата вызова) | Тот же путь, что `/v1/batch`, без книги: запрос — из проектов и примеров, подключение — `@connection`, система дат 1900. Результат — `{v}` или `{e: {code, msg}}` без `i`. `args` — матрицы как в `/v1/batch`, NULL — без аргументов |
 | `ofexcel_missing()` | `TABLE` колонок `meta.missing` | Недостающие данные |
 
 Настройки (`SET …`): `ofexcel_port` (INTEGER, 47321), `ofexcel_profile` (`'hosted'`/`'local'`), `ofexcel_hosted_origin` (VARCHAR), `ofexcel_tls_dir` (VARCHAR, пусто = `QEXCEL_HOME/tls`; §8.1), `ofexcel_refresh_parallel` (INTEGER, 4), `ofexcel_run_timeout` (INTEGER секунд, 1800), `ofexcel_spill_max_rows` (INTEGER, 10000), `ofexcel_write_chunk_rows` (INTEGER, 5000), `ofexcel_dataset_ttl_days` (INTEGER, 30), `ofexcel_addin_dir` (VARCHAR, пусто), `ofexcel_projects_dir` (VARCHAR, пусто = `~/QExcel/projects`; §1).

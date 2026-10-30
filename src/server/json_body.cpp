@@ -52,6 +52,11 @@ JsonObject &JsonObject::Set(const std::string &key, int64_t value) {
 	return *this;
 }
 
+JsonObject &JsonObject::SetDouble(const std::string &key, double value) {
+	impl->Add(key, yyjson_mut_real(impl->doc, value));
+	return *this;
+}
+
 JsonObject &JsonObject::Set(const std::string &key, bool value) {
 	impl->Add(key, yyjson_mut_bool(impl->doc, value));
 	return *this;

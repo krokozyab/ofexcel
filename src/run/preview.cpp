@@ -5,128 +5,21 @@
 
 #include "ofexcel/preview.hpp"
 
-#include "duckdb/main/query_result_stream.hpp"
 #include "ofexcel/api_error.hpp"
 #include "ofexcel/connections.hpp"
 #include "ofexcel/datasets.hpp"
 #include "ofexcel/fusion_errors.hpp"
 #include "ofexcel/hashing.hpp"
-#include "ofexcel/local_types.hpp"
 #include "ofexcel/oracle_render.hpp"
 #include "ofexcel/query_file.hpp"
 #include "ofexcel/result_types.hpp"
 #include "run_work.hpp"
 
 #include <chrono>
-#include <functional>
-#include <thread>
 
 namespace ofexcel {
 
 namespace {
-
-//! What the query returned: at most `limit` rows.
-struct ReadRows {
-	std::vector<std::string> names;
-	std::vector<duckdb::LogicalType> types;
-	std::vector<std::vector<duckdb::Value>> rows;
-	bool truncated = false;
-	duckdb::ErrorData error;
-};
-
-//! The watchdog of a run, for a Preview: it interrupts the reader once
-//! ofexcel_run_timeout has passed.
-class Watched {
-public:
-	explicit Watched(int64_t timeout_seconds_p)
-	    : timeout_seconds(timeout_seconds_p), watchdog([this]() { Watch(active, timeout_seconds); }) {
-	}
-	~Watched() {
-		{
-			std::lock_guard<std::mutex> lock(active.mutex);
-			active.done = true;
-		}
-		active.changed.notify_all();
-		watchdog.join();
-	}
-
-	//! Reads at most `limit` rows, and one more to know whether there are
-	//! more (§5.4), from what `submit` starts on `reader`.
-	ReadRows Read(duckdb::Connection &reader, int64_t limit,
-	              const std::function<duckdb::unique_ptr<duckdb::QueryResult>()> &submit) {
-		SetReader(&reader);
-		struct ClearReader {
-			Watched &self;
-			~ClearReader() {
-				self.SetReader(nullptr);
-			}
-		} clear_reader {*this};
-
-		ReadRows read;
-		auto handle = submit();
-		if (handle->HasError()) {
-			read.error = handle->GetErrorObject();
-			return read;
-		}
-		duckdb::QueryResultStream<> stream(std::move(handle));
-		for (const auto &name : stream.GetNames()) {
-			read.names.push_back(name.GetIdentifierName());
-		}
-		for (const auto &type : stream.GetTypes()) {
-			read.types.push_back(type);
-		}
-		while (!read.truncated) {
-			duckdb::unique_ptr<duckdb::DataChunk> chunk;
-			try {
-				chunk = stream.Fetch();
-			} catch (const std::exception &exception) {
-				read.error = duckdb::ErrorData(exception);
-				break;
-			}
-			if (!chunk) {
-				break;
-			}
-			for (duckdb::idx_t row = 0; row < chunk->size(); row++) {
-				if (static_cast<int64_t>(read.rows.size()) == limit) {
-					read.truncated = true;
-					break;
-				}
-				std::vector<duckdb::Value> values;
-				for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); column++) {
-					values.push_back(chunk->GetValue(column, row));
-				}
-				read.rows.push_back(std::move(values));
-			}
-		}
-		if (read.truncated) {
-			// The rest is not needed: stop the query between chunks, or in one.
-			reader.Interrupt();
-			stream.Close();
-		} else if (!read.error.HasError() && stream.HasError()) {
-			read.error = stream.GetErrorObject();
-		}
-		return read;
-	}
-
-	//! E_TIMEOUT if the watchdog stopped the read, whatever error it caused.
-	void ThrowIfTimedOut() const {
-		if (active.timed_out) {
-			throw ApiError("E_TIMEOUT", 504,
-			               "The preview was stopped: it took longer than " + std::to_string(timeout_seconds) +
-			                   " s (ofexcel_run_timeout)");
-		}
-	}
-
-private:
-	void SetReader(duckdb::Connection *connection) {
-		std::lock_guard<std::mutex> lock(active.mutex);
-		active.reader = connection;
-	}
-
-	int64_t timeout_seconds;
-	RunEngine::Active active;
-	std::thread watchdog;
-};
 
 const QueryColumn *Declared(const std::vector<QueryColumn> &declared, const std::string &name) {
 	for (const auto &column : declared) {
@@ -142,7 +35,7 @@ PreviewColumn Column(const std::string &name, const ColumnType &type, const Quer
 }
 
 void PreviewOracle(duckdb::DatabaseInstance &db, duckdb::Connection &connection, const QueryHeader &header,
-                   const PreviewRequest &request, Watched &watched, PreviewResult &result) {
+                   const PreviewRequest &request, WatchedReader &watched, PreviewResult &result) {
 	const auto connection_name = request.connection.empty() ? header.connection : request.connection;
 	if (connection_name.empty()) {
 		throw ApiError("E_BAD_REQUEST", 422,
@@ -245,17 +138,8 @@ void PreviewOracle(duckdb::DatabaseInstance &db, duckdb::Connection &connection,
 	}
 }
 
-//! An integer's value has 16 digits or more: |value| >= 10^15 (§3.4).
-bool FromId(const duckdb::Value &value) {
-	if (value.IsNull()) {
-		return false;
-	}
-	const auto text = value.ToString();
-	return text.size() - (text[0] == '-' ? 1 : 0) >= 16;
-}
-
 void PreviewLocal(duckdb::DatabaseInstance &db, duckdb::Connection &connection, const QueryHeader &header,
-                  const PreviewRequest &request, Watched &watched, PreviewResult &result) {
+                  const PreviewRequest &request, WatchedReader &watched, PreviewResult &result) {
 	// Dependencies are read as they are: Preview runs none of them, and records
 	// nothing in meta.missing (no workbook).
 	RunRequest run;
@@ -264,66 +148,15 @@ void PreviewLocal(duckdb::DatabaseInstance &db, duckdb::Connection &connection, 
 	run.deps = DepsMode::NONE;
 	Plan plan;
 	PlanLocalRun(connection, header, run, plan);
-	for (const auto &warning : plan.warnings) {
+	const auto rows = LocalEvaluation(db, connection, header).Run(plan, request.limit, watched);
+	for (const auto &warning : rows.warnings) {
 		result.warnings.push_back({warning.code, warning.message});
 	}
-
-	duckdb::Connection reader(db);
-	CreateDependencyViews(reader, connection, plan.depends);
-	auto prepared = reader.Prepare(plan.body);
-	if (prepared->HasError()) {
-		throw LocalSqlError(prepared->GetErrorObject());
+	for (const auto &column : rows.columns) {
+		result.columns.push_back({column.name, column.header.empty() ? column.name : column.header, column.type});
 	}
-	auto named = BindLocalParams(*prepared, plan);
-	const auto read = watched.Read(reader, request.limit, [&]() { return prepared->Submit(named); });
-	watched.ThrowIfTimedOut();
-	if (read.error.HasError()) {
-		throw LocalSqlError(read.error);
-	}
-	result.truncated = read.truncated;
-
-	for (size_t i = 0; i < read.names.size(); i++) {
-		for (size_t j = 0; j < i; j++) {
-			if (Lower(read.names[i]) == Lower(read.names[j])) {
-				throw ApiError("E_SQL_COMPILE", 422,
-				               "The result has two columns named " + read.names[i] + ": give them different names");
-			}
-		}
-	}
-	std::vector<const QueryColumn *> declared;
-	for (size_t i = 0; i < read.names.size(); i++) {
-		declared.push_back(Declared(header.columns, read.names[i]));
-		if (declared.back()) {
-			result.columns.push_back(Column(read.names[i], declared.back()->type, declared.back()));
-			continue;
-		}
-		LocalColumnStats stats;
-		if (IsIntegerType(read.types[i])) {
-			for (const auto &row : read.rows) {
-				stats.has_value_from_1e15 = stats.has_value_from_1e15 || FromId(row[i]);
-			}
-		}
-		const auto mapping = MapLocalType(read.types[i], read.names[i], stats);
-		if (mapping.cast_to_varchar) {
-			result.warnings.push_back({WARNING_TYPE_WIDENED, mapping.warning});
-		}
-		result.columns.push_back(Column(read.names[i], mapping.type, nullptr));
-	}
-	for (size_t r = 0; r < read.rows.size(); r++) {
-		std::vector<duckdb::Value> stored_row;
-		for (size_t i = 0; i < read.names.size(); i++) {
-			const auto storage = StorageType(result.columns[i].type);
-			const auto &value = read.rows[r][i];
-			if (declared[i]) {
-				stored_row.push_back(DeclaredLocalValue(read.names[i], *declared[i], value, static_cast<int64_t>(r) + 1)
-				                         .DefaultCastAs(storage));
-			} else {
-				// As a run stores it: the stage type first, then the storage type.
-				stored_row.push_back(value.DefaultCastAs(LocalStageType(read.types[i])).DefaultCastAs(storage));
-			}
-		}
-		result.rows.push_back(std::move(stored_row));
-	}
+	result.rows = rows.rows;
+	result.truncated = rows.truncated;
 }
 
 } // namespace
@@ -338,7 +171,7 @@ PreviewResult RunPreview(duckdb::DatabaseInstance &db, const PreviewRequest &req
 	duckdb::Connection connection(db);
 	PreviewResult result;
 	{
-		Watched watched(RunTimeoutSetting(connection));
+		WatchedReader watched(RunTimeoutSetting(connection));
 		if (header.engine == Engine::LOCAL) {
 			PreviewLocal(db, connection, header, request, watched, result);
 		} else {

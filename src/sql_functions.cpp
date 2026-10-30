@@ -5,6 +5,7 @@
 #include "ofexcel/connections.hpp"
 #include "ofexcel/datasets.hpp"
 #include "ofexcel/db_util.hpp"
+#include "ofexcel/formulas.hpp"
 #include "ofexcel/http_server.hpp"
 #include "ofexcel/local_validator.hpp"
 #include "ofexcel/paths.hpp"
@@ -538,6 +539,46 @@ duckdb::unique_ptr<FunctionData> DatasetsBind(ClientContext &context, TableFunct
 
 // --- ofexcel_version ---------------------------------------------------------
 
+duckdb::unique_ptr<FunctionData> MissingBind(ClientContext &context, TableFunctionBindInput &,
+                                             duckdb::vector<LogicalType> &return_types,
+                                             duckdb::vector<Identifier> &names) {
+	return MetaTableBind(context, "SELECT * FROM meta.missing ORDER BY workbook_id, query_id, instance_key",
+	                     return_types, names);
+}
+
+// --- ofexcel_call --------------------------------------------------------------
+
+//! One formula call the way /v1/batch evaluates it, without a workbook: the
+//! query from projects and examples, @connection, the 1900 date system. The
+//! result is the call's JSON from /v1/batch, without `i`.
+void CallFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &db = *state.GetContext().db;
+	for (idx_t row = 0; row < args.size(); row++) {
+		const auto kind = args.GetValue(0, row);
+		const auto query = args.GetValue(1, row);
+		const auto arguments = args.GetValue(2, row);
+		if (kind.IsNull() || query.IsNull()) {
+			result.SetValue(row, Value(LogicalType::VARCHAR));
+			continue;
+		}
+		FormulaCall call;
+		call.kind = kind.ToString();
+		call.query = query.ToString();
+		try {
+			if (!arguments.IsNull()) {
+				const auto document = JsonDocument::Parse(arguments.ToString());
+				call.args = FormulaArgs(document.Root(), "ofexcel_call");
+			}
+		} catch (const ApiError &error) {
+			throw duckdb::InvalidInputException("%s: %s", error.code, error.what());
+		} catch (const std::exception &error) {
+			throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_call: args must be JSON: %s", error.what());
+		}
+		// Without "i": the call has no number here.
+		result.SetValue(row, Value(FormulaResultJson(EvaluateBatch(db, BatchContext(), {call})[0], false).Serialize()));
+	}
+}
+
 void VersionFunction(DataChunk &, ExpressionState &, Vector &result) {
 	result.SetVectorType(duckdb::VectorType::CONSTANT_VECTOR);
 	duckdb::ConstantVector::GetData<duckdb::string_t>(result)[0] =
@@ -596,6 +637,9 @@ void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	add("ofexcel_dataset_ttl_days",
 	    "Dataset instances not read for this many days are dropped when ofexceld starts.", LogicalType::INTEGER,
 	    Value::INTEGER(static_cast<int32_t>(DEFAULT_DATASET_TTL_DAYS)));
+	add("ofexcel_spill_max_rows",
+	    "Rows OF.TABLE spills at most; a larger result is #N/A and belongs in a table.", LogicalType::INTEGER,
+	    Value::INTEGER(10000));
 	add("ofexcel_probe_routes", "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
 }
@@ -629,6 +673,14 @@ void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {
 	loader.RegisterFunction(run);
 	loader.RegisterFunction(RowsFunction("ofexcel_runs", RunsBind, MetaTableInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_datasets", DatasetsBind, MetaTableInit));
+	loader.RegisterFunction(RowsFunction("ofexcel_missing", MissingBind, MetaTableInit));
+
+	duckdb::ScalarFunction call("ofexcel_call", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+	                            LogicalType::VARCHAR, CallFunction);
+	// It reads the database: never folded into a constant.
+	call.SetVolatile();
+	call.SetNullHandling(duckdb::FunctionNullHandling::SPECIAL_HANDLING);
+	loader.RegisterFunction(call);
 
 	loader.RegisterFunction(RowsFunction("ofexcel_stop", StopBind, StopInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_status", StatusBind, StatusInit));

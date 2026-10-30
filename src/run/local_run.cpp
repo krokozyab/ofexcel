@@ -233,37 +233,25 @@ struct Missing {
 };
 
 //! §7.5: what a workbook misses, so that Smart Refresh can fetch it.
-void RecordMissing(duckdb::Connection &connection, const std::string &workbook_id,
-                   const std::vector<Missing> &missing) {
-	if (workbook_id.empty()) {
-		return;
-	}
-	std::lock_guard<std::mutex> guard(MetaWriteLock());
-	InTransaction(connection, [&]() {
-		const auto now = Now();
-		for (const auto &entry : missing) {
-			if (!entry.dependency) {
-				continue;
-			}
-			const auto &request = entry.dependency->request;
-			QueryRows(connection,
-			          "INSERT INTO meta.missing (workbook_id, instance_key, query_id, definition_hash, "
-			          "connection_name, params_json, first_seen, last_seen, requests) "
-			          "VALUES ($1, $2, $3, $4, $5, $6, $7, $7, 1) "
-			          "ON CONFLICT (workbook_id, instance_key) DO UPDATE SET last_seen = excluded.last_seen, "
-			          "requests = requests + 1",
-			          {duckdb::Value(workbook_id), duckdb::Value(entry.dependency->instance_key),
-			           duckdb::Value(request.definition.query_id),
-			           duckdb::Value(request.definition.definition_hash),
-			           duckdb::Value(request.connection.empty() ? LOCAL_CONNECTION_NAME : request.connection),
-			           duckdb::Value(CanonicalParams(entry.values)), now});
+void RecordMissingDependencies(duckdb::Connection &connection, const std::string &workbook_id,
+                               const std::vector<Missing> &missing) {
+	std::vector<MissingInstance> instances;
+	for (const auto &entry : missing) {
+		if (!entry.dependency) {
+			continue;
 		}
-	});
+		const auto &request = entry.dependency->request;
+		instances.push_back({entry.dependency->instance_key, request.definition.query_id,
+		                     request.definition.definition_hash,
+		                     request.connection.empty() ? LOCAL_CONNECTION_NAME : request.connection,
+		                     CanonicalParams(entry.values)});
+	}
+	RecordMissing(connection, workbook_id, instances);
 }
 
 [[noreturn]] void RefuseMissing(duckdb::Connection &connection, const QueryHeader &header, const RunRequest &request,
                                 const std::vector<Missing> &missing) {
-	RecordMissing(connection, request.workbook_id, missing);
+	RecordMissingDependencies(connection, request.workbook_id, missing);
 	JsonObject details;
 	auto list = details.SetArray("missing");
 	std::string names;
@@ -332,7 +320,9 @@ void CreateDependencyViews(duckdb::Connection &reader, duckdb::Connection &meta,
 			}
 			source = "xl_import." + QuoteIdentifier(dependency.name);
 		}
-		Execute(reader, "CREATE TEMP VIEW " + QuoteIdentifier(dependency.name) + " AS SELECT * FROM " + source);
+		// OR REPLACE: a LocalEvaluation points them at the next plan's tables.
+		Execute(reader,
+		        "CREATE OR REPLACE TEMP VIEW " + QuoteIdentifier(dependency.name) + " AS SELECT * FROM " + source);
 	}
 }
 

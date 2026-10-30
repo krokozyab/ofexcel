@@ -149,6 +149,7 @@ void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterQueryRoutes(server, context);
 	RegisterRunRoutes(server, context);
 	RegisterImportRoutes(server, context);
+	RegisterFormulaRoutes(server, context);
 	if (context.options.guard.profile == Profile::LOCAL) {
 		RegisterAddinRoutes(server, context);
 	}

@@ -23,17 +23,6 @@ duckdb::Value Environment(duckdb::Connection &connection, const std::string &nam
 	return rows.empty() ? duckdb::Value(duckdb::LogicalType::VARCHAR) : rows[0][0];
 }
 
-//! The Fusion user ofquack signed in as, or NULL when it does not know.
-duckdb::Value FusionUser(duckdb::Connection &connection, const std::string &name) {
-	const auto outcome = TryQueryRows(connection, "SELECT subject FROM fusion_scanner_sso_status(secret := $1)",
-	                                  {duckdb::Value(name)});
-	if (!outcome.Ok() || outcome.rows.empty() || outcome.rows[0][0].IsNull() ||
-	    outcome.rows[0][0].ToString().empty()) {
-		return duckdb::Value(duckdb::LogicalType::VARCHAR);
-	}
-	return outcome.rows[0][0];
-}
-
 } // namespace
 
 RunEngine &RunEngine::Get() {

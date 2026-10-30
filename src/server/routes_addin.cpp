@@ -1,5 +1,7 @@
 #include "routes.hpp"
 
+#include "ofexcel/formulas.hpp"
+
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -13,7 +15,8 @@ namespace {
 namespace fs = std::filesystem;
 
 // The files built into the binary until the real add-in is (TASKS.md E1): a
-// placeholder task pane and functions.json from CONTRACTS.md §10.1.
+// placeholder task pane, and functions.json from CONTRACTS.md §10.1
+// (src/batch/formulas.cpp).
 const char *const BUILTIN_TASKPANE = R"QEXCEL(<!doctype html>
 <html lang="ru">
 <head>
@@ -26,37 +29,10 @@ const char *const BUILTIN_TASKPANE = R"QEXCEL(<!doctype html>
 </html>
 )QEXCEL";
 
-const char *const BUILTIN_FUNCTIONS = R"QEXCEL({
-  "functions": [
-    { "id": "TABLE", "name": "TABLE",
-      "description": "QExcel query result as an array; the first row holds the headers",
-      "parameters": [
-        { "name": "query", "type": "string", "dimensionality": "scalar" },
-        { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
-      "result": { "type": "any", "dimensionality": "matrix" } },
-    { "id": "CALL", "name": "CALL",
-      "description": "Scalar value of a QExcel query (a 1 × 1 result)",
-      "parameters": [
-        { "name": "query", "type": "string", "dimensionality": "scalar" },
-        { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
-      "result": { "type": "any", "dimensionality": "scalar" } },
-    { "id": "ASOF", "name": "ASOF",
-      "description": "Time the query data was last fetched successfully",
-      "parameters": [
-        { "name": "query", "type": "string", "dimensionality": "scalar", "optional": true },
-        { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
-      "result": { "type": "number", "dimensionality": "scalar" } },
-    { "id": "STATUS", "name": "STATUS",
-      "description": "QExcel status: OK, NOT_SIGNED_IN, STALE, OFFLINE",
-      "parameters": [],
-      "result": { "type": "string", "dimensionality": "scalar" } }
-  ]
-}
-)QEXCEL";
 
 const std::map<std::string, std::string> &BuiltinFiles() {
 	static const std::map<std::string, std::string> FILES = {{"taskpane.html", BUILTIN_TASKPANE},
-	                                                         {"functions.json", BUILTIN_FUNCTIONS}};
+	                                                         {"functions.json", CoreFunctionsJson()}};
 	return FILES;
 }
 

@@ -49,6 +49,8 @@ public:
 	JsonObject &Set(const std::string &key, const std::string &value);
 	JsonObject &Set(const std::string &key, const char *value);
 	JsonObject &Set(const std::string &key, int64_t value);
+	//! Named apart, so that Set(key, 5) stays an integer.
+	JsonObject &SetDouble(const std::string &key, double value);
 	JsonObject &Set(const std::string &key, bool value);
 	JsonObject &SetNull(const std::string &key);
 	//! Copies `value` in; `value` stays usable.

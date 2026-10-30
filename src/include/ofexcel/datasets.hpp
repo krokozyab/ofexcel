@@ -50,6 +50,29 @@ std::vector<SchemaColumn> ReadQuerySchema(duckdb::Connection &connection, const 
 void WriteQuerySchema(duckdb::Connection &connection, const std::string &definition_hash,
                       const std::vector<SchemaColumn> &columns);
 
+//! The columns of ds.<table> with their contract types: from meta.query_schemas
+//! of `definition_hash` where the column is stored as that type is, else from
+//! the storage type (BIGINT integer, DECIMAL(p,s), DOUBLE number, DATE,
+//! TIMESTAMP, BOOLEAN; string otherwise). The schema there is the latest
+//! run's, and an older version may have had a narrower type (§3.3 item 4).
+//! Empty when the table is gone.
+std::vector<SchemaColumn> StoredSchema(duckdb::Connection &connection, const std::string &table,
+                                       const std::string &definition_hash);
+
+//! An instance a workbook needs and does not have (§7.5).
+struct MissingInstance {
+	std::string instance_key;
+	std::string query_id;
+	std::string definition_hash;
+	std::string connection_name;
+	std::string params_json;
+};
+
+//! Adds each to meta.missing of `workbook_id`, or counts one more request for
+//! it. Nothing without a workbook.
+void RecordMissing(duckdb::Connection &connection, const std::string &workbook_id,
+                   const std::vector<MissingInstance> &missing);
+
 //! Serializes the writes that touch rows other runs write too: meta.state's
 //! data_version, an instance's row, a definition's schema. DuckDB refuses the
 //! second of two transactions that update the same row, rather than waiting.
