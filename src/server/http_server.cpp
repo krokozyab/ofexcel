@@ -49,6 +49,10 @@ const char *MessageOf(GuardVerdict verdict) {
 	}
 }
 
+bool IsAddinPath(const std::string &path) {
+	return path.compare(0, ADDIN_PREFIX_LENGTH, ADDIN_PREFIX) == 0;
+}
+
 //! Applies the guard before routing, and the CORS headers an allowed hosted
 //! request needs. A refused request gets no CORS headers at all, so the browser
 //! does not even show the page the error body (CONTRACTS.md §8.1).
@@ -56,7 +60,12 @@ void InstallGuard(httplib::Server &server, const GuardConfig &guard) {
 	server.set_pre_routing_handler([guard](const httplib::Request &request, httplib::Response &response) {
 		const auto headers = HeadersOf(request);
 		const bool preflight = request.method == "OPTIONS";
-		const auto verdict = preflight ? CheckPreflight(guard, headers) : CheckApiRequest(guard, headers);
+		// The local profile's own pages hand the session token out, so only Host
+		// guards them (CheckStaticRequest). Everything else is the API.
+		const bool add_in_file = guard.profile == Profile::LOCAL && !preflight && IsAddinPath(request.path);
+		const auto verdict = add_in_file ? CheckStaticRequest(guard, headers)
+		                     : preflight ? CheckPreflight(guard, headers)
+		                                 : CheckApiRequest(guard, headers);
 		if (verdict != GuardVerdict::ALLOW) {
 			SendError(response, StatusOf(verdict), VerdictCode(verdict), MessageOf(verdict));
 			return httplib::Server::HandlerResponse::Handled;
@@ -131,6 +140,9 @@ std::unique_ptr<httplib::SSLServer> CreateTlsServer(const std::string &tls_dir) 
 
 void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterHealthRoutes(server, context);
+	if (context.options.guard.profile == Profile::LOCAL) {
+		RegisterAddinRoutes(server, context);
+	}
 	if (context.options.probe_routes) {
 		RegisterProbeRoutes(server, context);
 	}
@@ -209,6 +221,15 @@ std::string HttpServer::Start(duckdb::shared_ptr<duckdb::DatabaseInstance> db, S
 		throw duckdb::IOException("E_CONFLICT: порт %d на %s занят или недоступен", port, bind_address);
 	}
 	options.guard.port = port;
+	if (options.guard.profile == Profile::LOCAL) {
+		// New on every start: a page served by an earlier run holds a token
+		// that no longer opens the API.
+		try {
+			options.guard.session_token = GenerateSessionToken();
+		} catch (const TlsError &error) {
+			throw duckdb::IOException("E_INTERNAL: %s", error.what());
+		}
+	}
 
 	RouteContext context;
 	context.db = db;

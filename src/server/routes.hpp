@@ -37,7 +37,13 @@ void SendError(httplib::Response &response, int status, const std::string &code,
 //! X-OF-Data-Version and X-OF-Catalog-Version, which every /v1 response carries.
 void SetVersionHeaders(httplib::Response &response, duckdb::Connection &connection);
 
+//! Where the local profile serves the add-in's files (src/server/routes_addin.cpp).
+constexpr const char *ADDIN_PREFIX = "/addin/";
+constexpr size_t ADDIN_PREFIX_LENGTH = 7;
+
 void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context);
+//! Local profile only: GET /addin/*, with the session token in every HTML page.
+void RegisterAddinRoutes(httplib::Server &server, const RouteContext &context);
 //! Phase 0 only; registered when ServerOptions::probe_routes is set.
 void RegisterProbeRoutes(httplib::Server &server, const RouteContext &context);
 

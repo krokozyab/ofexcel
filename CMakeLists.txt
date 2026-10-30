@@ -42,6 +42,7 @@ set(EXTENSION_SOURCES
         src/server/json_body.cpp
         src/server/http_server.cpp
         src/server/routes_health.cpp
+        src/server/routes_addin.cpp
         src/server/routes_probe.cpp
 )
 
@@ -165,6 +166,14 @@ if(OFEXCEL_BUILD_TESTS)
   target_include_directories(ofexcel_server_test PRIVATE src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
   target_compile_features(ofexcel_server_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_server_test COMMAND ofexcel_server_test $<TARGET_FILE:ofexceld>)
+
+  # The local profile on a live HTTPS server: /addin/* with the session token,
+  # G12–G16 against the real guard, paths that try to leave the add-in.
+  add_executable(ofexcel_local_profile_test test/cpp/local_profile_test.cpp)
+  target_link_libraries(ofexcel_local_profile_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS} httplib::httplib)
+  target_include_directories(ofexcel_local_profile_test PRIVATE src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
+  target_compile_features(ofexcel_local_profile_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_local_profile_test COMMAND ofexcel_local_profile_test)
 
   # Drives oracle_fusion_query through ofquack's transport seam with scripted
   # SOAP responses: pins the ofquack behaviour CONTRACTS.md §5 relies on,

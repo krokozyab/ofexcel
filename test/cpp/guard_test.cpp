@@ -94,6 +94,11 @@ int main() {
 	       GuardVerdict::BAD_ORIGIN);
 	Expect("G19", CheckPreflight(hosted, Headers("127.0.0.1:47321")), GuardVerdict::BAD_ORIGIN);
 
+	Expect("G20", CheckStaticRequest(local, Headers("localhost:47321")), GuardVerdict::ALLOW);
+	Expect("G21", CheckStaticRequest(local, Headers("localhost:47321", "https://evil.example.com")),
+	       GuardVerdict::ALLOW);
+	Expect("G22", CheckStaticRequest(local, Headers("evil.example.com")), GuardVerdict::BAD_HOST);
+
 	ExpectOrigin("O1", "https://app.example.com", "https://app.example.com");
 	ExpectOrigin("O2", "https://APP.Example.com:8443", "https://app.example.com:8443");
 	ExpectOrigin("O3", "http://app.example.com", "");

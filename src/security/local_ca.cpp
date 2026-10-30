@@ -404,6 +404,20 @@ void IssueServerCertificate(const TlsFiles &files, int validity_days) {
 	IssueFromCa(files, LoadCa(files), validity_days);
 }
 
+std::string GenerateSessionToken() {
+	unsigned char bytes[32];
+	if (RAND_bytes(bytes, sizeof(bytes)) != 1) {
+		FailOpenSsl("Не удалось получить случайный токен сессии");
+	}
+	static const char *const HEX = "0123456789abcdef";
+	std::string token;
+	for (const auto byte : bytes) {
+		token += HEX[byte >> 4];
+		token += HEX[byte & 0x0f];
+	}
+	return token;
+}
+
 CertificateIdentity ReadCertificateIdentity(const std::string &cert_path) {
 	auto cert = ReadCert(cert_path);
 	unsigned char *der = nullptr;

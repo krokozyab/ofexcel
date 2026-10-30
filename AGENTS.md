@@ -53,6 +53,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_local_validator_test  # L1–L17 and more per rule
 ./build/release/extension/ofexcel/ofexcel_server_test build/release/extension/ofexcel/ofexceld
                                                             # HTTPS on an ephemeral port
+./build/release/extension/ofexcel/ofexcel_local_profile_test  # local profile: /addin/*, session token
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
 ./build/release/extension/ofexcel/ofexcel_daemon_test       # serve's start sequence, in process
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
@@ -97,7 +98,7 @@ src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS k
 src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB, no httplib
 src/server/http_server.cpp  HTTPS server lifecycle, guard, CORS, error fallbacks
 src/server/routes.hpp       what a route file needs
-src/server/routes_*.cpp     one file per route group
+src/server/routes_*.cpp     one file per route group; routes_addin.cpp serves /addin/* (local profile)
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON
 test/sql/                   sqllogictests
 test/cpp/                   C++ suites; test_support.hpp is shared

@@ -15,11 +15,15 @@
 namespace ofexcel {
 
 struct ServerOptions {
-	//! Profile, origins and session token. `guard.port` is the port to bind; 0
-	//! picks a free one, and the guard then checks against the port bound.
+	//! Profile and origins. `guard.port` is the port to bind; 0 picks a free
+	//! one, and the guard then checks against the port bound. In the local
+	//! profile Start() sets `guard.session_token` to a fresh token.
 	GuardConfig guard;
 	//! The directory with the local CA and the server certificate.
 	std::string tls_dir;
+	//! Local profile: where /addin/* is served from; "" for the files built
+	//! into the binary.
+	std::string addin_dir;
 	//! Phase 0 only: serve /v1/probe/* (src/server/routes_probe.cpp).
 	bool probe_routes = false;
 };

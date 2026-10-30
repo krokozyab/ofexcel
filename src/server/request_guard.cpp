@@ -84,6 +84,10 @@ GuardVerdict CheckPreflight(const GuardConfig &config, const RequestHeaders &hea
 	return GuardVerdict::ALLOW;
 }
 
+GuardVerdict CheckStaticRequest(const GuardConfig &config, const RequestHeaders &headers) {
+	return HostAllowed(config, headers.host) ? GuardVerdict::ALLOW : GuardVerdict::BAD_HOST;
+}
+
 std::string NormalizeHostedOrigin(const std::string &origin) {
 	const auto lowered = ToLower(origin);
 	const std::string scheme = "https://";

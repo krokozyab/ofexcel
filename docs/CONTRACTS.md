@@ -635,6 +635,12 @@ UPDATE meta.state SET value = CAST(CAST(value AS BIGINT) + 1 AS VARCHAR) WHERE k
   2. Для `/v1/*`: hosted — `Origin` **обязателен** и в точности равен `ofexcel_hosted_origin` (после нормализации: нижний регистр, `https://host[:port]`, без пути и завершающей `/`); local — `Origin` **может отсутствовать** (браузер не отправляет его на GET того же источника), но если есть — равен `https://localhost:<port>` или `https://127.0.0.1:<port>`. Иначе 403 `E_ORIGIN` **без** CORS-заголовков.
   3. local: заголовок `X-OF-Session` равен сессионному токену (сравнение за постоянное время), иначе 401 `E_SESSION`. В local именно токен, а не `Origin`, защищает запросы без `Origin`.
   4. Preflight `OPTIONS` проверяет `Host` и `Origin` (тот обязателен в обоих профилях), но не `X-OF-Session`: браузер не отправляет пользовательские заголовки в preflight.
+  5. local: `GET /addin/*` — файлы надстройки — проверяет только `Host` (п. 1). Эти страницы и выдают токен, поэтому требовать его они не могут; чужой сайт не прочитает их без CORS-заголовков (их нет), а под чужим именем, указывающим на 127.0.0.1 (DNS rebinding), отказывает проверка `Host`. В hosted `/addin/*` не отдаётся (404).
+- **Профиль local** (`src/server/routes_addin.cpp`):
+  - Токен сессии — 32 байта `RAND_bytes`, 64 строчные hex-цифры, новый при каждом запуске сервера: страница, отданная прошлым запуском, к API уже не подходит.
+  - `GET /addin/<путь>` отдаёт файлы из `ofexcel_addin_dir`, а если настройка пуста — встроенные (`taskpane.html` и `functions.json` из §10.1, пока надстройку не вшивает E1). В каждый HTML-файл (`.html`, `.htm`) сразу после открывающего `<head>` (или в начало, если его нет) вставляется `<meta name="qexcel-session" content="<токен>">`.
+  - Путь с сегментом `.`, `..` или пустым, с `\`, `:` или NUL — 404, в том числе после раскодирования `%2e`/`%2f`. Файл должен лежать внутри `ofexcel_addin_dir` и после разрешения символьных ссылок.
+  - Ответы `/addin/*` — с `Cache-Control: no-store` (токен меняется) и `X-Content-Type-Options: nosniff`.
 - **CORS (hosted):** на `OPTIONS` для разрешённого `Origin` — `204` с заголовками:
   ```
   Access-Control-Allow-Origin: <ofexcel_hosted_origin>
@@ -676,6 +682,9 @@ UPDATE meta.state SET value = CAST(CAST(value AS BIGINT) + 1 AS VARCHAR) WHERE k
 | G17 | hosted, `OPTIONS` | `127.0.0.1:47321` | `https://app.example.com` | — | ALLOW |
 | G18 | hosted, `OPTIONS` | `127.0.0.1:47321` | `https://evil.example.com` | — | `E_ORIGIN` |
 | G19 | hosted, `OPTIONS` | `127.0.0.1:47321` | (нет) | — | `E_ORIGIN` |
+| G20 | local, `GET /addin/*` | `localhost:47321` | (нет) | (нет) | ALLOW |
+| G21 | local, `GET /addin/*` | `localhost:47321` | `https://evil.example.com` | (нет) | ALLOW (без CORS-заголовков) |
+| G22 | local, `GET /addin/*` | `evil.example.com` | (нет) | (нет) | `E_HOST` |
 
 Нормализация `ofexcel_hosted_origin`: `https://APP.Example.com:8443` → `https://app.example.com:8443`; недопустимы (`""`, запуск сервера отказывает с `E_BAD_REQUEST`): `http://…`, завершающая `/`, путь, `user@`, порт > 65535, пустой хост, хост с точкой в начале.
 

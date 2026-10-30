@@ -61,32 +61,31 @@ std::string TlsDirSetting(ClientContext &context) {
 	}
 }
 
-//! Reads ofexcel_profile, ofexcel_hosted_origin, ofexcel_port and
-//! ofexcel_tls_dir into the options a server starts with. Every refusal names
-//! the setting to fix.
+//! Reads ofexcel_profile, ofexcel_hosted_origin, ofexcel_port, ofexcel_tls_dir
+//! and ofexcel_addin_dir into the options a server starts with. Every refusal
+//! names the setting to fix.
 ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override) {
 	ServerOptions options;
 
 	const auto profile = StringSetting(context, "ofexcel_profile");
 	if (profile == "local") {
-		// The local profile serves the add-in over https://localhost with a
-		// session token embedded in the pages; neither exists yet.
-		throw duckdb::NotImplementedException("E_UNSUPPORTED: профиль 'local' (HTTPS на localhost) ещё не реализован; "
-		                                      "используйте SET ofexcel_profile = 'hosted'");
-	}
-	if (profile != "hosted") {
+		// Same origin: the daemon serves the add-in, and the session token in
+		// its pages guards the API instead of an Origin.
+		options.guard.profile = Profile::LOCAL;
+		options.addin_dir = StringSetting(context, "ofexcel_addin_dir");
+	} else if (profile == "hosted") {
+		options.guard.profile = Profile::HOSTED;
+		const auto configured_origin = StringSetting(context, "ofexcel_hosted_origin");
+		options.guard.hosted_origin = NormalizeHostedOrigin(configured_origin);
+		if (options.guard.hosted_origin.empty()) {
+			throw duckdb::InvalidInputException(
+			    "E_BAD_REQUEST: ofexcel_hosted_origin должен быть origin вида https://host[:port] без пути, а сейчас "
+			    "'%s'. Например: SET ofexcel_hosted_origin = 'https://intranet.example.com'",
+			    configured_origin);
+		}
+	} else {
 		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_profile должен быть 'hosted' или 'local', а не '%s'",
 		                                    profile);
-	}
-	options.guard.profile = Profile::HOSTED;
-
-	const auto configured_origin = StringSetting(context, "ofexcel_hosted_origin");
-	options.guard.hosted_origin = NormalizeHostedOrigin(configured_origin);
-	if (options.guard.hosted_origin.empty()) {
-		throw duckdb::InvalidInputException(
-		    "E_BAD_REQUEST: ofexcel_hosted_origin должен быть origin вида https://host[:port] без пути, а сейчас '%s'. "
-		    "Например: SET ofexcel_hosted_origin = 'https://intranet.example.com'",
-		    configured_origin);
 	}
 
 	const auto port = port_override >= 0 ? port_override : IntegerSetting(context, "ofexcel_port", DEFAULT_PORT);
@@ -336,6 +335,9 @@ void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	    "Directory with the local CA and the server certificate (ofexceld install-cert); empty means QEXCEL_HOME/tls.",
 	    LogicalType::VARCHAR, Value(""));
 	add("ofexcel_hosted_origin", "The one Origin the hosted add-in is served from, e.g. https://intranet.example.com.",
+	    LogicalType::VARCHAR, Value(""));
+	add("ofexcel_addin_dir",
+	    "Local profile: directory /addin/ is served from; empty means the files built into ofexceld.",
 	    LogicalType::VARCHAR, Value(""));
 	add("ofexcel_probe_routes", "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false));

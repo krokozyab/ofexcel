@@ -82,6 +82,10 @@ struct CertificateIdentity {
 //! Reads a PEM certificate file. Throws TlsError.
 CertificateIdentity ReadCertificateIdentity(const std::string &cert_path);
 
+//! The local profile's session token: 32 bytes from RAND_bytes, 64 lower-case
+//! hex digits. Throws TlsError(INVALID) if the generator fails.
+std::string GenerateSessionToken();
+
 //! The whole file; throws TlsError(MISSING) if it does not exist.
 std::string ReadFileBytes(const std::string &path);
 

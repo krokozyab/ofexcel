@@ -42,13 +42,25 @@ SELECT * FROM ofexcel_start(port := 0);
 ----
 ofexceld install-cert
 
+# The local profile needs no origin, but the same certificates.
 statement ok
 SET ofexcel_profile = 'local';
+
+statement ok
+SET ofexcel_hosted_origin = '';
 
 statement error
 SELECT * FROM ofexcel_start(port := 0);
 ----
-E_UNSUPPORTED
+ofexceld install-cert
+
+statement ok
+SET ofexcel_profile = 'remote';
+
+statement error
+SELECT * FROM ofexcel_start(port := 0);
+----
+ofexcel_profile
 
 query T
 SELECT stopped FROM ofexcel_stop();

@@ -47,6 +47,11 @@ GuardVerdict CheckApiRequest(const GuardConfig &config, const RequestHeaders &he
 //! For an OPTIONS preflight, which never carries X-OF-Session.
 GuardVerdict CheckPreflight(const GuardConfig &config, const RequestHeaders &headers);
 
+//! For the add-in's own files in the local profile (/addin/*): Host only. The
+//! page is what hands the session token out, so it cannot require it; Host
+//! still keeps a rebound name from reading it.
+GuardVerdict CheckStaticRequest(const GuardConfig &config, const RequestHeaders &headers);
+
 //! `https://host[:port]` in lower case, or "" if `origin` is not one. A path,
 //! query, user info, trailing slash or any other scheme makes it invalid.
 std::string NormalizeHostedOrigin(const std::string &origin);

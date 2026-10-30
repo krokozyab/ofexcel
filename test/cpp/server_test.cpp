@@ -175,6 +175,14 @@ void TestUnknownRouteIsJson404(int port) {
 	CHECK(Contains(response->body, "\"code\":\"E_NOT_FOUND\""));
 }
 
+void TestAddinIsNotServedInHosted(int port) {
+	// The hosted add-in comes from its own HTTPS host; the daemon serves only the API.
+	const auto response = Client(port)->Get("/addin/taskpane.html", httplib::Headers {{"Origin", ORIGIN}});
+	CHECK(response);
+	CHECK(response->status == 404);
+	CHECK(response->body.find("qexcel-session") == std::string::npos);
+}
+
 void TestSecondStartIsRefused(duckdb::Connection &connection) {
 	const auto again = Run(connection, "SELECT * FROM ofexcel_start(port := 0)");
 	CHECK(again.HasError());
@@ -264,10 +272,12 @@ void TestRefusedConfigurations() {
 	CHECK(Contains(refused.error, "ofexceld install-cert"));
 	CHECK(!std::filesystem::exists(std::filesystem::u8path(empty.path)));
 
+	// The local profile needs no origin, but the same certificates.
 	RunOk(connection, "SET ofexcel_profile = 'local'");
+	RunOk(connection, "SET ofexcel_hosted_origin = ''");
 	refused = Run(connection, "SELECT * FROM ofexcel_start(port := 0)");
 	CHECK(refused.HasError());
-	CHECK(Contains(refused.error, "E_UNSUPPORTED"));
+	CHECK(Contains(refused.error, "ofexceld install-cert"));
 
 	RunOk(connection, "SET ofexcel_profile = 'remote'");
 	refused = Run(connection, "SELECT * FROM ofexcel_start(port := 0)");
@@ -303,6 +313,7 @@ int main(int argc, char **argv) {
 	TestForeignHostIsRefused(port);
 	TestPreflightAllowsTheHostedOrigin(port);
 	TestUnknownRouteIsJson404(port);
+	TestAddinIsNotServedInHosted(port);
 	TestSecondStartIsRefused(connection);
 	TestStatusReportsTheServer(connection, url);
 	TestMigrationsRan(connection);
