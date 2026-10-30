@@ -3,6 +3,7 @@
 #include "core_functions_extension.hpp"
 #include "fusion_scanner_extension.hpp"
 #include "ofexcel/connections.hpp"
+#include "ofexcel/datasets.hpp"
 #include "ofexcel/db_util.hpp"
 #include "ofexcel/migrations.hpp"
 #include "ofexcel/paths.hpp"
@@ -109,6 +110,19 @@ void LoadProjects(duckdb::Connection &connection) {
 	std::cerr << "ofexceld: " << registered << " project queries from " << projects_dir << std::endl;
 }
 
+//! CONTRACTS.md §6.4: instances past ofexcel_dataset_ttl_days, stage tables and
+//! runs a stopped daemon left behind.
+void CleanUpAtStart(duckdb::Connection &connection) {
+	const auto ttl_days =
+	    QueryRows(connection, "SELECT current_setting('ofexcel_dataset_ttl_days')").at(0).at(0).GetValue<int64_t>();
+	const auto cleanup = ofexcel::CleanupDatasets(connection, ttl_days > 0 ? ttl_days : DEFAULT_DATASET_TTL_DAYS);
+	if (cleanup.expired_instances || cleanup.stage_tables || cleanup.interrupted_runs) {
+		std::cerr << "ofexceld: dropped " << cleanup.expired_instances << " expired datasets and "
+		          << cleanup.stage_tables << " stage tables; " << cleanup.interrupted_runs
+		          << " interrupted runs marked failed" << std::endl;
+	}
+}
+
 //! SPEC.md §8.4. Repeated even where OpenDatabase already set them, because
 //! init.sql runs in between and may have changed them.
 void Harden(duckdb::Connection &connection) {
@@ -205,6 +219,8 @@ PreparedDatabase PrepareDaemonDatabase(const StartupOptions &options) {
 	// After init.sql too, which may set ofexcel_projects_dir.
 	RegisterExamples(connection, BuiltinExamples());
 	LoadProjects(connection);
+	// After init.sql, which may set ofexcel_dataset_ttl_days.
+	CleanUpAtStart(connection);
 	if (port >= 0) {
 		Execute(connection, "SET ofexcel_port = " + std::to_string(port));
 	}

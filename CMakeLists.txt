@@ -36,9 +36,11 @@ set(EXTENSION_SOURCES
         src/run/local_types.cpp
         src/run/local_validator.cpp
         src/run/fusion_errors.cpp
+        src/run/run_engine.cpp
         src/meta/migrations.cpp
         src/meta/connections.cpp
         src/meta/query_registry.cpp
+        src/meta/datasets.cpp
         src/security/local_ca.cpp
         src/security/trust_store.cpp
         src/server/request_guard.cpp
@@ -215,6 +217,16 @@ if(OFEXCEL_BUILD_TESTS)
   target_include_directories(ofexcel_queries_test PRIVATE src src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES})
   target_compile_features(ofexcel_queries_test PRIVATE cxx_std_17)
   add_test(NAME ofexcel_queries_test COMMAND ofexcel_queries_test)
+
+  # Oracle runs (TASKS.md C3) through ofquack's transport seam: types and stored
+  # values, an empty result, the row limit, Oracle's refusal, cancellation, the
+  # timeout, versions of an instance, the cleanup at start.
+  add_executable(ofexcel_runs_test test/cpp/runs_test.cpp ${OFEXCELD_SOURCES})
+  target_link_libraries(ofexcel_runs_test PRIVATE duckdb_static ${OFEXCEL_LINKED_EXTENSIONS})
+  target_include_directories(ofexcel_runs_test PRIVATE src src/include test/cpp ${OFEXCEL_LINKED_EXTENSION_INCLUDES}
+                             ${OFEXCEL_FUSION_SCANNER_SRC}/src)
+  target_compile_features(ofexcel_runs_test PRIVATE cxx_std_17)
+  add_test(NAME ofexcel_runs_test COMMAND ofexcel_runs_test)
 
   # `ofexceld serve` as a process: what it prints, the files it leaves, a live
   # HTTPS request. A bash script, so not on Windows.

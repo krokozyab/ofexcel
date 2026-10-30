@@ -82,3 +82,19 @@ statement error
 SELECT * FROM ofexcel_set_environment(NULL, 'DEV');
 ----
 E_BAD_REQUEST
+
+# ofexcel_run checks its arguments before it looks for the query.
+statement error
+SELECT * FROM ofexcel_run(NULL);
+----
+E_BAD_REQUEST
+
+statement error
+SELECT * FROM ofexcel_run('gl_balance', params := 'bu=204');
+----
+E_BAD_REQUEST
+
+query II
+SELECT current_setting('ofexcel_run_timeout'), current_setting('ofexcel_dataset_ttl_days');
+----
+1800	30

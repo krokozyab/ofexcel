@@ -58,6 +58,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_daemon_test       # serve's start sequence, in process
 ./build/release/extension/ofexcel/ofexcel_connections_test  # connections, secrets after restart, sign-in
 ./build/release/extension/ofexcel/ofexcel_queries_test      # query registry: projects, workbooks, resolution
+./build/release/extension/ofexcel/ofexcel_runs_test         # Oracle runs through the fake transport: types, limits, cancel
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -100,10 +101,12 @@ src/catalog/oracle_render.cpp  Oracle SQL tokenizer and parameter literals (§4)
 src/run/local_types.cpp     DuckDB type → contract type for Local results (§3.4) — knows DuckDB
 src/run/local_validator.cpp Local SQL validation V1–V9 over duckdb::Parser (§7)
 src/run/fusion_errors.cpp   ofquack's errors → E_FUSION_* and the rest of §14.1
+src/run/run_engine.cpp      Oracle runs: ofquack → stage → typed instance table, cancel, timeout (§5, §6.4)
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/meta/connections.cpp    meta.connections and the oracle_fusion secrets beside them (§8.3, §13)
 src/meta/query_registry.cpp meta.query_definitions: projects, workbooks, examples; resolution (§10.2)
+src/meta/datasets.cpp       dataset tables, storage types, meta.query_schemas, cleanup at start (§6)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only
 src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS keychain, Windows ROOT)
 src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB, no httplib

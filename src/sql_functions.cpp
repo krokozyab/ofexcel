@@ -3,12 +3,16 @@
 #include "duckdb/function/table_function.hpp"
 #include "ofexcel/api_error.hpp"
 #include "ofexcel/connections.hpp"
+#include "ofexcel/datasets.hpp"
+#include "ofexcel/db_util.hpp"
 #include "ofexcel/http_server.hpp"
 #include "ofexcel/local_validator.hpp"
 #include "ofexcel/paths.hpp"
 #include "ofexcel/query_registry.hpp"
+#include "ofexcel/run_engine.hpp"
 #include "ofexcel/version.hpp"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -396,6 +400,142 @@ duckdb::unique_ptr<GlobalTableFunctionState> ReloadInit(ClientContext &context, 
 	return std::move(state);
 }
 
+// --- ofexcel_run -------------------------------------------------------------
+
+struct RunBindData : public duckdb::TableFunctionData {
+	std::string query_id;
+	std::string connection;
+	std::map<std::string, ParamInput> params;
+};
+
+//! A SQL value as the add-in would have sent it in JSON: numbers as their text,
+//! dates and timestamps as strings, lists as arrays.
+ParamInput ParamInputFromValue(const Value &value) {
+	if (value.IsNull()) {
+		return ParamInput::Null();
+	}
+	const auto &type = value.type();
+	switch (type.id()) {
+	case duckdb::LogicalTypeId::BOOLEAN:
+		return ParamInput::Boolean(value.GetValue<bool>());
+	case duckdb::LogicalTypeId::LIST: {
+		std::vector<ParamInput> elements;
+		for (const auto &child : duckdb::ListValue::GetChildren(value)) {
+			elements.push_back(ParamInputFromValue(child));
+		}
+		return ParamInput::Array(std::move(elements));
+	}
+	default:
+		if (type.IsNumeric()) {
+			return ParamInput::Number(value.ToString());
+		}
+		return ParamInput::String(value.ToString());
+	}
+}
+
+duckdb::unique_ptr<FunctionData> RunBind(ClientContext &, TableFunctionBindInput &input,
+                                         duckdb::vector<LogicalType> &return_types, duckdb::vector<Identifier> &names) {
+	if (input.inputs.empty() || input.inputs[0].IsNull()) {
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: ofexcel_run: имя запроса не может быть NULL");
+	}
+	auto bind_data = duckdb::make_uniq<RunBindData>();
+	bind_data->query_id = input.inputs[0].ToString();
+	const auto connection = input.named_parameters.find("connection");
+	if (connection != input.named_parameters.end() && !connection->second.IsNull()) {
+		bind_data->connection = connection->second.ToString();
+	}
+	const auto params = input.named_parameters.find("params");
+	if (params != input.named_parameters.end() && !params->second.IsNull()) {
+		const auto &value = params->second;
+		if (value.type().id() != duckdb::LogicalTypeId::STRUCT) {
+			throw duckdb::InvalidInputException(
+			    "E_BAD_REQUEST: ofexcel_run: params — структура, например params := {'period': '2026-01'}");
+		}
+		const auto &children = duckdb::StructValue::GetChildren(value);
+		for (idx_t i = 0; i < children.size(); i++) {
+			bind_data->params[duckdb::StructType::GetChildName(value.type(), i).GetIdentifierName()] =
+			    ParamInputFromValue(children[i]);
+		}
+	}
+	names = {"run_id", "status", "rows_fetched", "truncated", "error_code", "error_message"};
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR,  LogicalType::BIGINT,
+	                LogicalType::BOOLEAN, LogicalType::VARCHAR, LogicalType::VARCHAR};
+	return std::move(bind_data);
+}
+
+//! Starts the run and waits for it. The query is resolved as §10.2 resolves it
+//! without a workbook: projects, then examples.
+duckdb::unique_ptr<GlobalTableFunctionState> RunInit(ClientContext &context, TableFunctionInitInput &input) {
+	const auto &bind_data = input.bind_data->Cast<RunBindData>();
+	duckdb::Connection connection(*context.db);
+	RunRequest request;
+	if (!FindQuery(connection, bind_data.query_id, QueryScope(), request.definition)) {
+		throw duckdb::InvalidInputException("E_NOT_FOUND: нет запроса %s", bind_data.query_id);
+	}
+	request.connection = bind_data.connection;
+	request.params = bind_data.params;
+	auto &engine = RunEngine::Get();
+	RunStart started;
+	try {
+		started = engine.Start(*context.db, request);
+	} catch (const ApiError &error) {
+		throw duckdb::InvalidInputException("%s: %s", error.code, error.what());
+	}
+	engine.Wait(started.run_id);
+	auto state = duckdb::make_uniq<RowsState>();
+	for (auto &row : QueryRows(connection,
+	                           "SELECT run_id, status, rows_fetched, truncated, error_code, error_message "
+	                           "FROM meta.runs WHERE run_id = $1",
+	                           {Value(started.run_id)})) {
+		state->rows.push_back(std::move(row));
+	}
+	return std::move(state);
+}
+
+// --- ofexcel_runs / ofexcel_datasets -----------------------------------------
+
+struct MetaTableBindData : public duckdb::TableFunctionData {
+	std::string sql;
+};
+
+//! Every column of a meta.* table, as §6.2 declares it. The columns are read
+//! from the table itself, so a migration that adds one needs no change here.
+duckdb::unique_ptr<FunctionData> MetaTableBind(ClientContext &context, const std::string &sql,
+                                               duckdb::vector<LogicalType> &return_types,
+                                               duckdb::vector<Identifier> &names) {
+	duckdb::Connection connection(*context.db);
+	auto result = connection.Query("SELECT * FROM (" + sql + ") LIMIT 0");
+	if (result->HasError()) {
+		result->ThrowError("E_INTERNAL: ");
+	}
+	names = result->GetNames();
+	return_types = result->GetTypes();
+	auto bind_data = duckdb::make_uniq<MetaTableBindData>();
+	bind_data->sql = sql;
+	return std::move(bind_data);
+}
+
+duckdb::unique_ptr<GlobalTableFunctionState> MetaTableInit(ClientContext &context, TableFunctionInitInput &input) {
+	const auto &bind_data = input.bind_data->Cast<MetaTableBindData>();
+	duckdb::Connection connection(*context.db);
+	auto state = duckdb::make_uniq<RowsState>();
+	state->rows = QueryRows(connection, bind_data.sql);
+	return std::move(state);
+}
+
+duckdb::unique_ptr<FunctionData> RunsBind(ClientContext &context, TableFunctionBindInput &,
+                                          duckdb::vector<LogicalType> &return_types,
+                                          duckdb::vector<Identifier> &names) {
+	return MetaTableBind(context, "SELECT * FROM meta.runs ORDER BY started_at DESC, run_id", return_types, names);
+}
+
+duckdb::unique_ptr<FunctionData> DatasetsBind(ClientContext &context, TableFunctionBindInput &,
+                                              duckdb::vector<LogicalType> &return_types,
+                                              duckdb::vector<Identifier> &names) {
+	return MetaTableBind(context, "SELECT * FROM meta.dataset_instances ORDER BY query_id, instance_key", return_types,
+	                     names);
+}
+
 // --- ofexcel_version ---------------------------------------------------------
 
 void VersionFunction(DataChunk &, ExpressionState &, Vector &result) {
@@ -451,6 +591,11 @@ void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	add("ofexcel_projects_dir",
 	    "Directory of query projects, <project>/queries/*.sql; empty means ~/QExcel/projects.", LogicalType::VARCHAR,
 	    Value(""));
+	add("ofexcel_run_timeout", "Seconds an Oracle run may take before it is interrupted with E_TIMEOUT.",
+	    LogicalType::INTEGER, Value::INTEGER(static_cast<int32_t>(DEFAULT_RUN_TIMEOUT_SECONDS)));
+	add("ofexcel_dataset_ttl_days",
+	    "Dataset instances not read for this many days are dropped when ofexceld starts.", LogicalType::INTEGER,
+	    Value::INTEGER(static_cast<int32_t>(DEFAULT_DATASET_TTL_DAYS)));
 	add("ofexcel_probe_routes", "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
 }
@@ -477,6 +622,13 @@ void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {
 
 	loader.RegisterFunction(RowsFunction("ofexcel_queries", QueriesBind, QueriesInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_reload", ReloadBind, ReloadInit));
+
+	TableFunction run("ofexcel_run", {LogicalType::VARCHAR}, ScanRows, RunBind, RunInit);
+	AddNamedParameter(run, "params", LogicalType::ANY);
+	AddNamedParameter(run, "connection", LogicalType::VARCHAR);
+	loader.RegisterFunction(run);
+	loader.RegisterFunction(RowsFunction("ofexcel_runs", RunsBind, MetaTableInit));
+	loader.RegisterFunction(RowsFunction("ofexcel_datasets", DatasetsBind, MetaTableInit));
 
 	loader.RegisterFunction(RowsFunction("ofexcel_stop", StopBind, StopInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_status", StatusBind, StatusInit));
