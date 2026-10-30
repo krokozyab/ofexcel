@@ -18,6 +18,32 @@
 		.status[data-tone="warning"]::before { color: var(--warning); }
 		.status[data-tone="error"]::before { color: var(--error); }
 		.status[data-tone="error"] { color: var(--error); }
+		h2 { font-size: 13px; margin: 4px 0 8px; }
+		button { font: inherit; padding: 3px 10px; border: 1px solid #c8c8c8; border-radius: 4px;
+		         background: #f6f6f6; color: var(--text); cursor: pointer; }
+		button.primary { background: var(--ok); border-color: var(--ok); color: #fff; }
+		button:disabled { opacity: .5; cursor: default; }
+		.note { color: var(--muted); }
+		.problem { color: var(--error); margin: 4px 0; }
+		.warning { color: var(--warning); margin: 4px 0; }
+		/* Environment colours (SPEC.md §3.1): the same wherever a connection is shown. */
+		[data-environment="DEV"] { --env: #0f6cbd; }
+		[data-environment="TEST"] { --env: #a35200; }
+		[data-environment="PROD"] { --env: #c50f1f; }
+		.connection { border: 1px solid var(--line); border-left: 4px solid var(--env); border-radius: 4px;
+		              padding: 8px; margin-bottom: 8px; }
+		.connection .title { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+		.connection .environment { color: #fff; background: var(--env); border-radius: 3px; padding: 0 5px;
+		                           font-size: 11px; font-weight: 600; }
+		.connection .host { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+		.connection .state { color: var(--muted); margin: 4px 0; }
+		.connection .state.ok { color: var(--ok); }
+		.connection .signing-in { color: var(--warning); margin: 4px 0; }
+		.connection .actions { display: flex; gap: 6px; margin-top: 6px; }
+		details.add summary { cursor: pointer; color: var(--ok); margin: 4px 0; }
+		form label { display: block; margin: 6px 0; color: var(--muted); }
+		form input, form select { display: block; width: 100%; box-sizing: border-box; margin-top: 2px;
+		                          font: inherit; padding: 3px; color: var(--text); }
 	</style>
 </head>
 <body>

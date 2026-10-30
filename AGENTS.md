@@ -154,7 +154,8 @@ src/server/routes_dictionary.cpp /v1/dictionary/*: Fusion tables and columns for
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 addin/src/api/              the daemon's API from the add-in: client, errors, versions, cache, health
-addin/src/taskpane/         the task pane: entry point (the shared runtime) and status bar
+addin/src/connections/      connections and sign-in as the pane sees them (SPEC.md §3.1, DECISIONS.md R5)
+addin/src/taskpane/         the task pane: entry point (the shared runtime), status bar, sections; dom.ts builds DOM
 addin/src/config.ts         where the daemon is: the page's origin (local) or the loopback (hosted)
 addin/test/                 add-in unit tests (node --test)
 addin/manifest.template.xml the add-in manifest; {{BASE_URL}} and {{VERSION}} filled by the build

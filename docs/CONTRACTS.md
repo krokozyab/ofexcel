@@ -764,10 +764,10 @@ type RowsPage = {
 **`GET /v1/status`** → 200
 ```ts
 { connections: Array<{ name: string; environment: Environment; host: string;
-                       signed_in: boolean; user?: string }>;
+                       signed_in: boolean; user?: string; expires_in?: number }>;
   active_runs: number; warnings: Warning[] }
 ```
-Подключения — строки `meta.connections` по имени; `host` — `host[:port]` из `endpoint`; `signed_in` и `user` — из `fusion_scanner_sso_status()` (токен не выдаётся никогда). `user` нет, если ofquack не знает субъекта.
+Подключения — строки `meta.connections` по имени; `host` — `host[:port]` из `endpoint`; `signed_in`, `user` и `expires_in` — из `fusion_scanner_sso_status()` (токен не выдаётся никогда). `user` нет, если ofquack не знает субъекта. `expires_in` — секунд до истечения токена, только при `signed_in`: панель предупреждает за 15 минут (`DECISIONS.md` Р5).
 
 **`GET /v1/connections`** → `{ connections: Array<{ name; environment; endpoint; report_path }> }` — строки `meta.connections` по имени, без учётных данных и токенов.
 

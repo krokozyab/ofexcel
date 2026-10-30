@@ -24,13 +24,14 @@ mkdirSync('dist/assets', { recursive: true });
 mkdirSync('build', { recursive: true });
 
 // One script for the shared runtime: the task pane now, the custom functions
-// later (TASKS.md D8). Office's WebViews are Safari on the Mac and Chromium
-// (WebView2) on Windows.
+// later (TASKS.md D8). Office's WebViews are the system's Safari on the Mac
+// (Excel needs macOS 13 or later, so Safari 16 or later; 15 leaves room) and
+// Chromium (WebView2) on Windows.
 await esbuild.build({
 	entryPoints: ['src/taskpane/main.ts'],
 	bundle: true,
 	format: 'iife',
-	target: ['es2020', 'safari14', 'chrome90'],
+	target: ['es2020', 'safari15', 'chrome90'],
 	outfile: 'dist/taskpane.js',
 	sourcemap: 'linked',
 	legalComments: 'none',

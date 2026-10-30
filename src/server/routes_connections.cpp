@@ -10,6 +10,7 @@
 #include "ofexcel/query_file.hpp"
 #include "ofexcel/run_engine.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -44,17 +45,21 @@ JsonObject ConnectionJson(const FusionConnection &definition) {
 struct SignInState {
 	bool signed_in = false;
 	std::string user; //!< "" when ofquack does not know the subject
+	//! Seconds until the token expires; 0 without one.
+	int64_t expires_in = 0;
 };
 
 //! From fusion_scanner_sso_status(): never the token, only whether there is one.
 SignInState ReadSignInState(duckdb::Connection &connection, const std::string &name) {
 	SignInState state;
 	const auto outcome = TryQueryRows(
-	    connection, "SELECT have_token, subject FROM fusion_scanner_sso_status(secret := $1)", {duckdb::Value(name)});
+	    connection, "SELECT have_token, subject, expires_in_seconds FROM fusion_scanner_sso_status(secret := $1)",
+	    {duckdb::Value(name)});
 	if (outcome.Ok() && !outcome.rows.empty()) {
 		const auto &row = outcome.rows[0];
 		state.signed_in = !row[0].IsNull() && row[0].GetValue<bool>();
 		state.user = row[1].IsNull() ? "" : row[1].ToString();
+		state.expires_in = state.signed_in && !row[2].IsNull() ? std::max<int64_t>(0, row[2].GetValue<int64_t>()) : 0;
 	}
 	return state;
 }
@@ -84,6 +89,10 @@ void Status(const httplib::Request &, httplib::Response &response, duckdb::Conne
 		    .Set("signed_in", state.signed_in);
 		if (!state.user.empty()) {
 			item.Set("user", state.user);
+		}
+		// The panel warns before it runs out (DECISIONS.md R5).
+		if (state.signed_in) {
+			item.Set("expires_in", state.expires_in);
 		}
 		connections.AddObject(item);
 	}

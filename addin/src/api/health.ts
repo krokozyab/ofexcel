@@ -29,6 +29,8 @@ const realTimer: Timer = {
 
 export interface HealthMonitorOptions {
 	onChange: (state: DaemonState) => void;
+	/** After every check, changed or not: what else should be read on the same beat. */
+	onChecked?: (state: DaemonState) => void;
 	intervalMs?: number;
 	timer?: Timer;
 }
@@ -101,6 +103,7 @@ export class HealthMonitor {
 			this.current = next;
 			this.options.onChange(next);
 		}
+		this.options.onChecked?.(next);
 		return next;
 	}
 }

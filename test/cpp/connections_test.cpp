@@ -299,7 +299,12 @@ void TestStatusAfterSignIn(Daemon &daemon) {
 	const auto status = Api(daemon.port).Get("/v1/status");
 	CheckStatus(status, 200);
 	CHECK(Contains(status->body, "{\"name\":\"fusion_test\",\"environment\":\"TEST\",\"host\":\"fa.example.com\","
-	                             "\"signed_in\":true,\"user\":\"analyst@example.com\"}"));
+	                             "\"signed_in\":true,\"user\":\"analyst@example.com\",\"expires_in\":"));
+	// A token good for an hour a moment ago, less the margin ofquack keeps
+	// before a token's own expiry (TOKEN_EXPIRY_BUFFER_SECONDS, 5 minutes).
+	const auto at = status->body.find("\"expires_in\":") + 13;
+	const auto expires_in = std::stoll(status->body.substr(at, status->body.find('}', at) - at));
+	CHECK(expires_in > 3200 && expires_in <= 3300);
 	CHECK(!Contains(status->body, "signature"));
 }
 
