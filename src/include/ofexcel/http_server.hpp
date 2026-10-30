@@ -24,6 +24,9 @@ struct ServerOptions {
 	//! Local profile: where /addin/* is served from; "" for the files built
 	//! into the binary.
 	std::string addin_dir;
+	//! Where PUT /v1/queries/{id} writes project files: ofexcel_projects_dir, or
+	//! ~/QExcel/projects when that is empty.
+	std::string projects_dir;
 	//! Phase 0 only: serve /v1/probe/* (src/server/routes_probe.cpp).
 	bool probe_routes = false;
 };

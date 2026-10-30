@@ -144,6 +144,34 @@ void TestInstanceKey() {
 	ExpectTrue("K6 list order", InstanceKey("ap_invoices", hash, "fusion_prod", CanonicalParams(params)) != key);
 }
 
+void TestCanonicalJson() {
+	// Keys sorted by bytes at every level, whatever order they were set in.
+	const auto nested = CanonicalJson::Object()
+	                        .Set("b", CanonicalJson::Integer(-2))
+	                        .Set("a", CanonicalJson::Array()
+	                                      .Add(CanonicalJson::Null())
+	                                      .Add(CanonicalJson::Boolean(true))
+	                                      .Add(CanonicalJson::Object().Set("z", CanonicalJson::String("1")).Set("Z", CanonicalJson::String("2"))))
+	                        .Set("\xC3\xA9", CanonicalJson::String("\xC3\xA9"))
+	                        .Set("A", CanonicalJson::Boolean(false));
+	Expect("CJ1 nesting and order", nested.Serialize(),
+	       "{\"A\":false,\"a\":[null,true,{\"Z\":\"2\",\"z\":\"1\"}],\"b\":-2,\"\xC3\xA9\":\"\xC3\xA9\"}");
+	// The same escaping as canonical_params: lower-case hex, / and DEL as they are.
+	Expect("CJ2 escaping", CanonicalJson::String(std::string("\x01\"\\\n/\x7F", 6)).Serialize(),
+	       "\"\\u0001\\\"\\\\\\n/\x7F\"");
+	Expect("CJ3 a key set twice keeps the last value",
+	       CanonicalJson::Object().Set("k", CanonicalJson::Integer(1)).Set("k", CanonicalJson::Integer(2)).Serialize(),
+	       "{\"k\":2}");
+	Expect("CJ4 empty containers", CanonicalJson::Object().Set("x", CanonicalJson::Array()).Serialize(), "{\"x\":[]}");
+	bool refused = false;
+	try {
+		CanonicalJson::String("\xFF").Serialize();
+	} catch (const std::invalid_argument &) {
+		refused = true;
+	}
+	ExpectTrue("CJ5 invalid UTF-8", refused);
+}
+
 } // namespace
 
 int main() {
@@ -152,6 +180,7 @@ int main() {
 	TestNothingElseIsNormalized();
 	TestCanonicalParams();
 	TestInstanceKey();
+	TestCanonicalJson();
 	if (failures) {
 		std::cerr << failures << " hashing check(s) failed\n";
 		return EXIT_FAILURE;

@@ -39,6 +39,23 @@ struct RenderResult {
 RenderResult RenderOracle(const std::string &body, const std::vector<QueryParam> &params,
                           const std::map<std::string, ParamInput> &inputs);
 
+struct OracleTextCheck {
+	bool ok = false;
+	//! Lower case, unique, in the order they first appear; also when !ok, as
+	//! far as the tokenizer got.
+	std::vector<std::string> params_in_text;
+	//! Russian: declared parameters the text never uses.
+	std::vector<std::string> warnings;
+	//! !ok: E_SQL_TOKENIZE, E_SQL_NOT_SELECT, E_PARAM_POSITIONAL, E_PARAM_UNKNOWN
+	//! or E_PARAM_LIST_CONTEXT, and a message with the body's line.
+	std::string code;
+	std::string message;
+};
+
+//! The checks RenderOracle makes on the text before it looks at any value:
+//! what the editor reports without values (POST /v1/queries/validate).
+OracleTextCheck CheckOracleText(const std::string &body, const std::vector<QueryParam> &params);
+
 //! The Oracle literal for one canonical value of `type` (§4.2). For list<T>,
 //! the subquery; it belongs right after IN.
 std::string OracleLiteral(const ParamType &type, const CanonicalValue &value);

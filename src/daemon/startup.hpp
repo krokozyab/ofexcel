@@ -41,7 +41,8 @@ duckdb::unique_ptr<duckdb::DuckDB> OpenDatabase(const std::string &path);
 
 //! What `ofexceld serve` does before the server starts, in this order: check the
 //! file name, open the database, run migrations, run init.sql, recreate the
-//! connections' secrets from meta.connections, apply the
+//! connections' secrets from meta.connections, register the examples and the
+//! project files, apply the
 //! command-line flags, apply SPEC.md §8.4's settings, lock the configuration.
 //! After it returns no connection can SET anything. Throws duckdb exceptions
 //! whose message starts with a CONTRACTS.md §14 code.

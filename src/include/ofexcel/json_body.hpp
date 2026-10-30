@@ -81,6 +81,10 @@ public:
 	//! false unless Kind() is BOOLEAN.
 	bool Bool() const;
 	JsonValue Get(const std::string &key) const;
+	//! Elements of an array; 0 for anything else.
+	size_t Size() const;
+	//! Element `index` of an array; MISSING past the end or for anything else.
+	JsonValue At(size_t index) const;
 
 private:
 	friend class JsonDocument;
@@ -110,6 +114,8 @@ private:
 
 //! {"error":{"code":…,"message":…}} -- CONTRACTS.md §8.1.
 std::string ErrorBody(const std::string &code, const std::string &message);
+//! The same with `details` copied in under error.details.
+std::string ErrorBody(const std::string &code, const std::string &message, const JsonObject &details);
 
 //! Current UTC time as YYYY-MM-DDTHH:MM:SSZ (CONTRACTS.md §1).
 std::string UtcNowIso8601();

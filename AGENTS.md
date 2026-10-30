@@ -57,6 +57,7 @@ Single tests:
 ./build/release/extension/ofexcel/ofexcel_fusion_seam_test  # ofquack behind a fake transport
 ./build/release/extension/ofexcel/ofexcel_daemon_test       # serve's start sequence, in process
 ./build/release/extension/ofexcel/ofexcel_connections_test  # connections, secrets after restart, sign-in
+./build/release/extension/ofexcel/ofexcel_queries_test      # query registry: projects, workbooks, resolution
 bash test/http/serve_test.sh build/release/extension/ofexcel/ofexceld   # serve as a process
 ```
 `make test` runs `duckdb/scripts/ci/run_tests.py`; if `python3` is unusable, run
@@ -102,12 +103,14 @@ src/run/fusion_errors.cpp   ofquack's errors → E_FUSION_* and the rest of §14
 src/catalog/utf8.cpp        UTF-8 validation — pure
 src/meta/migrations.cpp     meta schema, versioned (CONTRACTS.md §6.2)
 src/meta/connections.cpp    meta.connections and the oracle_fusion secrets beside them (§8.3, §13)
+src/meta/query_registry.cpp meta.query_definitions: projects, workbooks, examples; resolution (§10.2)
 src/security/local_ca.cpp   local CA and server certificate (CONTRACTS.md §8.1) — pure, OpenSSL only
 src/security/trust_store.cpp  CA into / out of the user's trusted roots (macOS keychain, Windows ROOT)
 src/server/request_guard.cpp  Host / Origin / session checks — pure, no DuckDB, no httplib
 src/server/http_server.cpp  HTTPS server lifecycle, guard, CORS, error fallbacks
 src/server/routes.hpp       what a route file needs
 src/server/routes_*.cpp     one file per route group; routes_addin.cpp serves /addin/* (local profile)
+src/server/routes_queries.cpp  /v1/queries*, /v1/workbooks/{id}/queries
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 test/sql/                   sqllogictests

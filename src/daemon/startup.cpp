@@ -6,12 +6,14 @@
 #include "ofexcel/db_util.hpp"
 #include "ofexcel/migrations.hpp"
 #include "ofexcel/paths.hpp"
+#include "ofexcel/query_registry.hpp"
 #include "ofexcel_extension.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 
 #ifndef _WIN32
@@ -81,6 +83,30 @@ int ParsePort(const std::string &text) {
 		throw duckdb::InvalidInputException("E_BAD_REQUEST: --port должен быть числом от 0 до 65535, а не '%s'", text);
 	}
 	return port;
+}
+
+//! Registers the project files (TASKS.md C1). A file that does not parse is
+//! reported on stderr and left out; it never stops the daemon from starting.
+void LoadProjects(duckdb::Connection &connection) {
+	auto projects_dir =
+	    QueryRows(connection, "SELECT current_setting('ofexcel_projects_dir')::VARCHAR").at(0).at(0).ToString();
+	if (projects_dir.empty()) {
+		try {
+			projects_dir = DefaultProjectsDir();
+		} catch (const std::exception &error) {
+			std::cerr << "ofexceld: projects not loaded: " << error.what() << std::endl;
+			return;
+		}
+	}
+	size_t registered = 0;
+	for (const auto &entry : ReloadProjects(connection, projects_dir)) {
+		if (entry.ok) {
+			registered++;
+		} else {
+			std::cerr << "ofexceld: " << entry.source << " not registered: " << entry.message << std::endl;
+		}
+	}
+	std::cerr << "ofexceld: " << registered << " project queries from " << projects_dir << std::endl;
 }
 
 //! SPEC.md §8.4. Repeated even where OpenDatabase already set them, because
@@ -176,6 +202,9 @@ PreparedDatabase PrepareDaemonDatabase(const StartupOptions &options) {
 	}
 	// After init.sql, so a secret it created under a connection's name wins.
 	RestoreConnectionSecrets(connection);
+	// After init.sql too, which may set ofexcel_projects_dir.
+	RegisterExamples(connection, BuiltinExamples());
+	LoadProjects(connection);
 	if (port >= 0) {
 		Execute(connection, "SET ofexcel_port = " + std::to_string(port));
 	}

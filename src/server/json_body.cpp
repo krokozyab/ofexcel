@@ -178,6 +178,17 @@ JsonValue JsonValue::Get(const std::string &key) const {
 	return JsonValue(yyjson_obj_getn(ValueOf(value), key.data(), key.size()));
 }
 
+size_t JsonValue::Size() const {
+	return yyjson_is_arr(ValueOf(value)) ? yyjson_arr_size(ValueOf(value)) : 0;
+}
+
+JsonValue JsonValue::At(size_t index) const {
+	if (index >= Size()) {
+		return JsonValue(nullptr);
+	}
+	return JsonValue(yyjson_arr_get(ValueOf(value), index));
+}
+
 JsonDocument JsonDocument::Parse(const std::string &text) {
 	JsonDocument parsed;
 	// yyjson rejects invalid UTF-8 unless told otherwise (CONTRACTS.md §1).
@@ -212,6 +223,14 @@ JsonValue JsonDocument::Root() const {
 std::string ErrorBody(const std::string &code, const std::string &message) {
 	JsonObject error;
 	error.Set("code", code).Set("message", message);
+	JsonObject body;
+	body.Set("error", error);
+	return body.Serialize();
+}
+
+std::string ErrorBody(const std::string &code, const std::string &message, const JsonObject &details) {
+	JsonObject error;
+	error.Set("code", code).Set("message", message).Set("details", details);
 	JsonObject body;
 	body.Set("error", error);
 	return body.Serialize();

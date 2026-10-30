@@ -8,10 +8,12 @@
 // RegisterRoutes in http_server.cpp, add the file to CMakeLists.txt.
 
 #include "duckdb.hpp"
+#include "ofexcel/api_error.hpp"
 #include "ofexcel/http_server.hpp"
 
 #include <httplib.h>
 
+#include <functional>
 #include <string>
 
 namespace ofexcel {
@@ -34,8 +36,24 @@ void SendJson(httplib::Response &response, int status, const std::string &body);
 //! so it is written in Russian (CONTRACTS.md §8.1).
 void SendError(httplib::Response &response, int status, const std::string &code, const std::string &message);
 
+//! An ApiError as its status and error body, details included.
+void SendApiError(httplib::Response &response, const ApiError &error);
+
 //! X-OF-Data-Version and X-OF-Catalog-Version, which every /v1 response carries.
 void SetVersionHeaders(httplib::Response &response, duckdb::Connection &connection);
+
+using ConnectionHandler = std::function<void(const httplib::Request &, httplib::Response &, duckdb::Connection &)>;
+
+//! A /v1 handler with the request's own connection. Sets the version headers
+//! after `handler` ran, so a route that changes the catalog reports the new
+//! version, and turns an ApiError into its error body.
+httplib::Server::Handler WithConnection(const RouteContext &context, ConnectionHandler handler);
+
+//! The body as a JSON object, or ApiError E_BAD_REQUEST (400).
+JsonDocument ParseBody(const httplib::Request &request);
+
+//! The string member `key`, or ApiError E_BAD_REQUEST (422) naming it.
+std::string RequiredString(const JsonValue &body, const std::string &key);
 
 //! Where the local profile serves the add-in's files (src/server/routes_addin.cpp).
 constexpr const char *ADDIN_PREFIX = "/addin/";
@@ -44,6 +62,8 @@ constexpr size_t ADDIN_PREFIX_LENGTH = 7;
 void RegisterHealthRoutes(httplib::Server &server, const RouteContext &context);
 //! /v1/status, /v1/connections*, /v1/auth/* (src/server/routes_connections.cpp).
 void RegisterConnectionRoutes(httplib::Server &server, const RouteContext &context);
+//! /v1/queries*, /v1/workbooks/{id}/queries (src/server/routes_queries.cpp).
+void RegisterQueryRoutes(httplib::Server &server, const RouteContext &context);
 //! Local profile only: GET /addin/*, with the session token in every HTML page.
 void RegisterAddinRoutes(httplib::Server &server, const RouteContext &context);
 //! Phase 0 only; registered when ServerOptions::probe_routes is set.

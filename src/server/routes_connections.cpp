@@ -22,46 +22,6 @@ namespace {
 //! What /v1/connections/{name}/test runs through §5.1.
 constexpr const char *TEST_SQL = "SELECT 1 FROM dual";
 
-using ConnectionHandler =
-    std::function<void(const httplib::Request &, httplib::Response &, duckdb::Connection &)>;
-
-//! Opens the request's connection, sets the version headers, and turns an
-//! ApiError into its error body.
-httplib::Server::Handler WithConnection(const RouteContext &context, ConnectionHandler handler) {
-	return [context, handler](const httplib::Request &request, httplib::Response &response) {
-		auto connection = context.Connect();
-		if (!connection) {
-			SendError(response, 503, "E_INTERNAL", "База данных закрыта");
-			return;
-		}
-		SetVersionHeaders(response, *connection);
-		try {
-			handler(request, response, *connection);
-		} catch (const ApiError &error) {
-			SendError(response, error.status, error.code, error.what());
-		}
-	};
-}
-
-JsonDocument ParseBody(const httplib::Request &request) {
-	try {
-		auto document = JsonDocument::Parse(request.body);
-		if (document.Root().Is(JsonKind::OBJECT)) {
-			return document;
-		}
-	} catch (const std::invalid_argument &) {
-	}
-	throw ApiError("E_BAD_REQUEST", 400, "Тело запроса должно быть объектом JSON");
-}
-
-std::string RequiredString(const JsonValue &body, const std::string &key) {
-	const auto value = body.Get(key);
-	if (!value.Is(JsonKind::STRING)) {
-		throw ApiError("E_BAD_REQUEST", 422, "В теле запроса нет строки " + key);
-	}
-	return value.String();
-}
-
 //! The name of an oracle_fusion secret, or E_NOT_FOUND. Checked before the
 //! name reaches ofquack, whose own error would read as a Fusion failure.
 std::string ExistingConnection(duckdb::Connection &connection, const std::string &name) {

@@ -38,6 +38,9 @@ struct LocalSqlVerdict {
 	std::string fragment;
 	//! Russian, for the author: rule, fragment and what to do.
 	std::string message;
+	//! $name references, lower case, unique, in the order the walk met them;
+	//! on a violation, those met before it. Empty if the text does not parse.
+	std::vector<std::string> params_in_text;
 };
 
 LocalSqlVerdict ValidateLocalSql(const std::string &sql, const LocalSqlScope &scope);

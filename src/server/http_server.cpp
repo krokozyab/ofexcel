@@ -107,7 +107,7 @@ void InstallFallbacks(httplib::Server &server) {
 			std::rethrow_exception(error);
 		} catch (const ApiError &api_error) {
 			// A route's own refusal, with its §14 code and status.
-			SendError(response, api_error.status, api_error.code, api_error.what());
+			SendApiError(response, api_error);
 			return;
 		} catch (const std::exception &exception) {
 			message += ": " + duckdb::ErrorData(exception).Message();
@@ -146,6 +146,7 @@ std::unique_ptr<httplib::SSLServer> CreateTlsServer(const std::string &tls_dir) 
 void RegisterRoutes(httplib::Server &server, const RouteContext &context) {
 	RegisterHealthRoutes(server, context);
 	RegisterConnectionRoutes(server, context);
+	RegisterQueryRoutes(server, context);
 	if (context.options.guard.profile == Profile::LOCAL) {
 		RegisterAddinRoutes(server, context);
 	}
@@ -173,10 +174,53 @@ void SendError(httplib::Response &response, int status, const std::string &code,
 	SendJson(response, status, ErrorBody(code, message));
 }
 
+void SendApiError(httplib::Response &response, const ApiError &error) {
+	if (error.details) {
+		SendJson(response, error.status, ErrorBody(error.code, error.what(), *error.details));
+	} else {
+		SendError(response, error.status, error.code, error.what());
+	}
+}
+
 void SetVersionHeaders(httplib::Response &response, duckdb::Connection &connection) {
 	const auto state = ReadMetaState(connection);
 	response.set_header("X-OF-Data-Version", std::to_string(state.data_version));
 	response.set_header("X-OF-Catalog-Version", state.catalog_version);
+}
+
+httplib::Server::Handler WithConnection(const RouteContext &context, ConnectionHandler handler) {
+	return [context, handler](const httplib::Request &request, httplib::Response &response) {
+		auto connection = context.Connect();
+		if (!connection) {
+			SendError(response, 503, "E_INTERNAL", "База данных закрыта");
+			return;
+		}
+		try {
+			handler(request, response, *connection);
+		} catch (const ApiError &error) {
+			SendApiError(response, error);
+		}
+		SetVersionHeaders(response, *connection);
+	};
+}
+
+JsonDocument ParseBody(const httplib::Request &request) {
+	try {
+		auto document = JsonDocument::Parse(request.body);
+		if (document.Root().Is(JsonKind::OBJECT)) {
+			return document;
+		}
+	} catch (const std::invalid_argument &) {
+	}
+	throw ApiError("E_BAD_REQUEST", 400, "Тело запроса должно быть объектом JSON");
+}
+
+std::string RequiredString(const JsonValue &body, const std::string &key) {
+	const auto value = body.Get(key);
+	if (!value.Is(JsonKind::STRING)) {
+		throw ApiError("E_BAD_REQUEST", 422, "В теле запроса нет строки " + key);
+	}
+	return value.String();
 }
 
 struct HttpServer::State {

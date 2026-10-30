@@ -67,6 +67,9 @@ public:
 	explicit Validator(const LocalSqlScope &scope) : scope(scope) {
 	}
 
+	//! $name references seen so far, in order.
+	std::vector<std::string> params_in_text;
+
 	void Statement(duckdb::SQLStatement &statement) {
 		if (statement.type != duckdb::StatementType::SELECT_STATEMENT) {
 			Violate("V2", duckdb::StatementTypeToString(statement.type),
@@ -273,6 +276,9 @@ private:
 		const bool positional =
 		    identifier.empty() || std::all_of(identifier.begin(), identifier.end(),
 		                                      [](unsigned char c) { return std::isdigit(c) != 0; });
+		if (!positional && !Contains(params_in_text, Lower(identifier))) {
+			params_in_text.push_back(Lower(identifier));
+		}
 		if (positional) {
 			Violate("V8", identifier.empty() ? "?" : "$" + identifier,
 			        "позиционные параметры (? и $1) запрещены; используйте $имя из @param");
@@ -329,19 +335,22 @@ LocalSqlVerdict ValidateLocalSql(const std::string &sql, const LocalSqlScope &sc
 		verdict.message = "Local SQL не разбирается: " + duckdb::ErrorData(error).Message();
 		return verdict;
 	}
+	Validator validator(scope);
 	try {
 		if (parser.statements.size() != 1) {
 			Violate("V1", std::to_string(parser.statements.size()),
 			        "нужна ровно одна инструкция, а их " + std::to_string(parser.statements.size()));
 		}
-		Validator(scope).Statement(*parser.statements[0]);
+		validator.Statement(*parser.statements[0]);
 	} catch (const Violation &violation) {
+		verdict.params_in_text = validator.params_in_text;
 		verdict.code = "E_VALIDATION";
 		verdict.rule = violation.rule;
 		verdict.fragment = violation.fragment;
 		verdict.message = violation.rule + ": " + violation.message + (violation.fragment.empty() ? "" : " — " + violation.fragment);
 		return verdict;
 	}
+	verdict.params_in_text = validator.params_in_text;
 	verdict.ok = true;
 	return verdict;
 }

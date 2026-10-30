@@ -6,6 +6,7 @@
 #include "duckdb.hpp"
 
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace ofexcel {
@@ -39,5 +40,28 @@ struct QueryOutcome {
 //! QueryRows with parameters that returns the error instead of throwing it.
 QueryOutcome TryQueryRows(duckdb::Connection &connection, const std::string &sql,
                           duckdb::vector<duckdb::Value> params);
+
+//! Runs `body` in a transaction on `connection`: committed if it returns,
+//! rolled back if it throws. The secret manager needs a transaction, and
+//! several writes then land together or not at all.
+template <class BODY>
+auto InTransaction(duckdb::Connection &connection, BODY body) -> decltype(body()) {
+	connection.BeginTransaction();
+	try {
+		if constexpr (std::is_void<decltype(body())>::value) {
+			body();
+			connection.Commit();
+		} else {
+			auto result = body();
+			connection.Commit();
+			return result;
+		}
+	} catch (...) {
+		if (connection.HasActiveTransaction()) {
+			connection.Rollback();
+		}
+		throw;
+	}
+}
 
 } // namespace ofexcel

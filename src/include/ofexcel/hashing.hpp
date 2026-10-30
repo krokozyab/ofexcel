@@ -7,6 +7,7 @@
 // test/cpp/hashing_test.cpp; a change to a rule changes every stored hash, so
 // change the contract, the tests and a migration together.
 
+#include <cstdint>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -49,5 +50,41 @@ std::string CanonicalParams(const std::map<std::string, CanonicalValue> &params)
 //! LOCAL_CONNECTION_NAME for a local query.
 std::string InstanceKey(const std::string &query_id, const std::string &definition_hash,
                         const std::string &connection_name, const std::string &canonical_params);
+
+//! A JSON value written the way CanonicalParams writes: object keys sorted by
+//! their UTF-8 bytes, no whitespace, RFC 8785 string escaping. For JSON that is
+//! stored or compared byte for byte, such as header_json (CONTRACTS.md §6.2);
+//! response bodies use JsonObject. Numbers are integers only.
+class CanonicalJson {
+public:
+	static CanonicalJson Null();
+	static CanonicalJson String(std::string value);
+	static CanonicalJson Integer(int64_t value);
+	static CanonicalJson Boolean(bool value);
+	static CanonicalJson Array();
+	static CanonicalJson Object();
+
+	//! Objects only. Setting a key twice keeps the last value.
+	CanonicalJson &Set(const std::string &key, CanonicalJson value);
+	//! Arrays only.
+	CanonicalJson &Add(CanonicalJson value);
+
+	//! Throws std::invalid_argument if a key or string is not valid UTF-8.
+	std::string Serialize() const;
+
+private:
+	enum class Kind { NULL_VALUE, STRING, INTEGER, BOOLEAN, ARRAY, OBJECT };
+	explicit CanonicalJson(Kind kind) : kind(kind) {
+	}
+	void Write(std::string &out) const;
+
+	Kind kind;
+	std::string text;
+	int64_t integer = 0;
+	bool boolean = false;
+	//! ARRAY: the elements. OBJECT: the values, `keys[i]` naming `items[i]`.
+	std::vector<CanonicalJson> items;
+	std::vector<std::string> keys;
+};
 
 } // namespace ofexcel

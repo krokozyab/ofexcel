@@ -29,23 +29,6 @@ ApiError BadRequest(const std::string &message) {
 	return ApiError("E_BAD_REQUEST", 422, message);
 }
 
-//! Runs `body` in a transaction on `connection`: the secret manager needs one,
-//! and the secret and the row then commit or roll back together.
-template <class BODY>
-auto InTransaction(duckdb::Connection &connection, BODY body) -> decltype(body()) {
-	connection.BeginTransaction();
-	try {
-		auto result = body();
-		connection.Commit();
-		return result;
-	} catch (...) {
-		if (connection.HasActiveTransaction()) {
-			connection.Rollback();
-		}
-		throw;
-	}
-}
-
 duckdb::unique_ptr<duckdb::SecretEntry> FindSecret(duckdb::Connection &connection, const std::string &name) {
 	auto &context = *connection.context;
 	auto transaction = duckdb::CatalogTransaction::GetSystemCatalogTransaction(context);

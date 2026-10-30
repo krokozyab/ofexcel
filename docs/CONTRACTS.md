@@ -27,8 +27,8 @@
 | UUID | v4, строка в нижнем регистре с дефисами |
 | Хеш | SHA-256, строка из 64 шестнадцатеричных символов в нижнем регистре |
 | JSON в DuckDB | Колонки с JSON — тип `VARCHAR` (расширение `json` не линкуется) |
-| Порядок ключей | Где нужен канонический JSON — ключи отсортированы по байтам UTF-8, без пробелов. Строки экранируются как в RFC 8785: только `"` → `\"`, `\` → `\\` и U+0000–U+001F (`\b \t \n \f \r`, остальные — `\u00xx` строчными); всё прочее, включая `/`, U+007F и не-ASCII, — байтами UTF-8 как есть. Невалидный UTF-8 — ошибка. Реализация — `src/catalog/hashing.cpp` |
-| Пути на диске | `QEXCEL_HOME`: macOS — `~/Library/Application Support/QExcel`, Windows — `%LOCALAPPDATA%\QExcel`; переменная окружения `QEXCEL_HOME` заменяет это значение (тесты, нестандартная установка). Каталог создаётся с правами `0700`. В нём: `data.duckdb` — база демона, `init.sql` — конфигурация (если есть), `tls/` — сертификаты (§8.1). Проекты — `~/QExcel/projects/<проект>/queries/` |
+| Порядок ключей | Где нужен канонический JSON — ключи отсортированы по байтам UTF-8, без пробелов. Строки экранируются как в RFC 8785: только `"` → `\"`, `\` → `\\` и U+0000–U+001F (`\b \t \n \f \r`, остальные — `\u00xx` строчными); всё прочее, включая `/`, U+007F и не-ASCII, — байтами UTF-8 как есть. Невалидный UTF-8 — ошибка. Числа — только целые. Реализация — `src/catalog/hashing.cpp` (`CanonicalParams`, `CanonicalJson`) |
+| Пути на диске | `QEXCEL_HOME`: macOS — `~/Library/Application Support/QExcel`, Windows — `%LOCALAPPDATA%\QExcel`; переменная окружения `QEXCEL_HOME` заменяет это значение (тесты, нестандартная установка). Каталог создаётся с правами `0700`. В нём: `data.duckdb` — база демона, `init.sql` — конфигурация (если есть), `tls/` — сертификаты (§8.1). Проекты — `~/QExcel/projects/<проект>/queries/*.sql` (Windows — `%USERPROFILE%\QExcel\projects`), каталог заменяет настройка `ofexcel_projects_dir` (§13). Имя проекта — имя его каталога: непустое, до 100 байт UTF-8, без управляющих символов и `/ \ : * ? " < > \|`, не начинается с `.` и не кончается `.` или пробелом; каталоги с другими именами пропускаются. Файл запроса — не больше 1 МБ |
 
 ### 1.1 Хеш определения
 `definition_hash = sha256(bytes)`, где `bytes` — текст файла запроса после двух преобразований: удалить BOM UTF-8 в начале; заменить `\r\n` и одиночные `\r` на `\n`. Больше никаких нормализаций (пробелы, регистр, комментарии сохраняются).
@@ -542,6 +542,12 @@ INSERT INTO meta.schema_version VALUES (1);
 INSERT INTO meta.state VALUES ('data_version', '0'), ('catalog_version', '');
 ```
 
+**Реестр запросов** (`src/meta/query_registry.cpp`):
+- `header_json` — канонический JSON (§1) с ключами `id`, `engine`, `version`, `title`, `description`, `connection`, `max_rows` (пустые — `null`), `params: [{name, type, default, description}]` (`default` — строка, для `list<T>` — массив строк, нет — `null`), `columns: [{name, type, header}]`, `depends: [{kind: "query"|"import", name, arguments: [{name, kind: "param"|"string"|"number"|"date"|"boolean", value}]}]`.
+- Источник заменяется целиком: перечитывание проектов — все строки `project`, сохранение из редактора — строки этого проекта, регистрация книги — строки этой книги. Удаление старых строк, вставка новых и новый `catalog_version` — в одной транзакции.
+- **Одна версия — один текст.** В одном источнике (проект, книга, примеры) два разных текста с одинаковыми `@id` и `@version` — `E_QUERY_PARSE` для второго: в проекте второй файл по порядку имён не регистрируется, книга отклоняется целиком. Одинаковые тексты — одно определение.
+- **`catalog_version`** — первые 16 шестнадцатеричных цифр SHA-256 от строк `source_kind \t source_ref \t query_id \t definition_hash \n` всех определений, отсортированных по байтам; пустой реестр — `""`. Те же файлы дают ту же версию и после перезапуска, поэтому кэш клиента не сбрасывается зря. Доверие (`meta.trusted_definitions`) в версию не входит.
+
 ### 6.3 Выбор экземпляра
 Для запроса `Q` с определением `H`, подключением `C` и параметрами `P`: `instance_key` по §1.3. Если строки в `meta.dataset_instances` нет — создаётся со `status = 'empty'`.
 
@@ -748,19 +754,27 @@ type RowsPage = {
 
 **`GET /v1/dictionary/columns?connection=&table=`** → `{ columns: Array<{ name; type?; description? }> }` — через `oracle_fusion_columns(table)`.
 
-**`GET /v1/queries?workbook=<id>`** → `{ queries: QuerySummary[] }` — проекты, примеры и (если передан `workbook`) запросы этой книги.
+**`GET /v1/queries?workbook=<id>`** → `{ queries: QuerySummary[] }` — проекты, примеры и (если передан `workbook`) запросы этой книги. Все определения, а не только выбранные по §10.2; порядок — книга, проекты, примеры, внутри — по `id`, затем новые версии первыми.
 
-**`GET /v1/queries/{id}?source_kind=&source_ref=`** → `QuerySummary & { text: string }`.
+`QuerySummary` строится из текста определения: `params` и `columns` — из `@param` и `@column`; без `@column` — из `meta.query_schemas` этого хеша, если она есть. `ParamDef.default` для `list<T>` — элементы через `", "`. `ColumnInfo.header` — заголовок из `@column`, иначе имя колонки.
 
-**`PUT /v1/queries/{id}`** `{ project: string; text: string }` → 200 `QuerySummary`. Пишет файл `~/QExcel/projects/<project>/queries/<id>.sql`, регистрирует определение, добавляет хеш в `meta.trusted_definitions` с `origin = 'local_editor'`. `@id` в тексте ≠ `{id}` — 422 `E_QUERY_PARSE`.
+**`GET /v1/queries/{id}?source_kind=&source_ref=&workbook=`** → `QuerySummary & { text: string }`. Без `source_kind` — определение, которое выбирает §10.2 (запросы книги `workbook` первыми, если она передана); с `source_kind` (и `source_ref`, если передан) — наибольшая версия в этом источнике. Нет — 404 `E_NOT_FOUND`; `source_kind` не `project`/`workbook`/`example` — 422 `E_BAD_REQUEST`.
 
-**`PUT /v1/workbooks/{workbook_id}/queries`** `{ queries: Array<{ text: string }> }` → `{ queries: QuerySummary[] }`. Заменяет набор запросов книги в `meta.query_definitions` (`source_kind = 'workbook'`). Поле `trusted` показывает, есть ли хеш в `meta.trusted_definitions`. Хеши не доверяются автоматически.
+**`PUT /v1/queries/{id}`** `{ project: string; text: string }` → 200 `QuerySummary`. Пишет файл `<каталог проектов>/<project>/queries/<id>.sql` (через временный файл и переименование; каталоги создаются), заново читает этот проект и регистрирует определение. Добавление хеша в `meta.trusted_definitions` с `origin = 'local_editor'` — задача C2. `@id` в тексте ≠ `{id}` или заголовок не разбирается — 422 `E_QUERY_PARSE`, в `details.errors` — ошибки разбора `{code, message, line?}`; файл не пишется. Другой файл проекта с тем же `@id` и `@version`, но другим текстом — 422 `E_QUERY_PARSE`, файл не пишется. `{id}` не по §1 или имя проекта не по §1 «Пути на диске» — 422 `E_BAD_REQUEST`.
+
+**`PUT /v1/workbooks/{workbook_id}/queries`** `{ queries: Array<{ text: string }> }` → `{ queries: QuerySummary[] }` в порядке запроса. Заменяет набор запросов книги в `meta.query_definitions` (`source_kind = 'workbook'`); пустой массив удаляет все. Поле `trusted` показывает, есть ли хеш в `meta.trusted_definitions`. Хеши не доверяются автоматически.
+- Всё или ничего: если хоть один текст не разбирается — 422 `E_QUERY_PARSE`, набор книги не меняется, `details: { queries: Array<{ index: number; errors: Array<{ code; message; line? }> }> }` (`index` — с 0).
+- `workbook_id` — UUID v4 в нижнем регистре (§9.1), иначе 422 `E_BAD_REQUEST`.
 
 **`POST /v1/queries/validate`** `{ text: string }` → 200
 ```ts
 { ok: boolean; header?: QuerySummary; params_in_text: string[];
   errors: Array<{ code: string; message: string; line?: number }>; warnings: Warning[] }
 ```
+- Сначала заголовок (§2): его ошибки — с `line` (0 не пишется). Если он разобран, то тело: для `oracle` — проверки текста токенизатора (§4.1, без значений), для `local` — валидатор (§7); их ошибки — без `line`, номер строки тела — в `message`. `ok` — нет ни одной ошибки.
+- `header` — только если заголовок разобран. `source` и `trusted` — как у зарегистрированного определения с этим хешем (первого в порядке `GET /v1/queries`); незарегистрированный текст — `{ kind: "workbook", ref: "" }`, `trusted: false`.
+- `params_in_text` — `:имя` (oracle) или `$имя` (local) в нижнем регистре, по одному разу, в порядке появления; при ошибке тела — найденные до неё.
+- `warnings` — `{ code: "W_PARAM_UNUSED" }` для каждого объявленного, но не использованного параметра.
 
 **`POST /v1/preview`**
 ```ts
@@ -895,7 +909,7 @@ type Binding = {
 ```
 
 ### 10.2 Семантика
-- **Разрешение запроса по имени** `query`: запросы книги (по `workbook_id`) → проекты → примеры; внутри источника — по `@id` без учёта регистра. Если в одном источнике несколько определений с одним `@id` — берётся с наибольшим `@version`. Не найдено — `#NAME?` (`invalidName`).
+- **Разрешение запроса по имени** `query`: запросы книги (по `workbook_id`) → проекты → примеры; внутри источника — по `@id` без учёта регистра. Если в одном источнике несколько определений с одним `@id` — берётся с наибольшим `@version`. Источник здесь — уровень: книга, все проекты вместе, примеры. Равные версии в разных проектах — первый проект по байтам имени (в одном проекте одна версия — один текст, §6.2). Не найдено — `#NAME?` (`invalidName`). Реализация — `FindQuery` в `src/meta/query_registry.cpp`.
 - **Аргументы** — позиционно в порядке `@param`. Аргумент-матрица для скалярного типа ДОЛЖЕН быть 1 × 1, иначе `#VALUE!`. Для `list<T>` — матрица разворачивается по строкам, пустые ячейки пропускаются. Пустая ячейка или пропущенный аргумент → значение по умолчанию или `E_PARAM_MISSING` (`#VALUE!`). Excel передаёт пустую ячейку и пропущенный аргумент как `null`, а `""` и ячейку с формулой `=""` — как `""` (`PHASE0_REPORT.md` §4.8); обе формы трактуются как пусто.
 - **Даты в аргументах.** Excel передаёт дату из ячейки как серийное число (`DATE(2026,1,1)` → 46023). Для параметров типа `date` и `timestamp` число ДОЛЖНО трактоваться как серийная дата Excel с учётом системы дат книги (1900 или 1904) и превращаться в `YYYY-MM-DD` / `YYYY-MM-DD HH:MM:SS` до отправки в демон (§3.1). Строка — как ISO-дата.
 - **Подключение** для oracle-запроса в формуле: подключение по умолчанию книги (`settings` ключ `qexcel.default_connection`), иначе `@connection`, иначе `#N/A` «Не выбрано подключение».
@@ -1003,11 +1017,11 @@ type Binding = {
 | `ofexcel_run(query_id VARCHAR, params := STRUCT, connection := VARCHAR)` | `TABLE(run_id, status, rows_fetched, truncated, error_code, error_message)` | Запуск и ожидание завершения |
 | `ofexcel_runs()` | `TABLE` колонок `meta.runs` | История |
 | `ofexcel_datasets()` | `TABLE` колонок `meta.dataset_instances` | Экземпляры |
-| `ofexcel_reload()` | `TABLE(source VARCHAR, query_id VARCHAR, ok BOOLEAN, message VARCHAR)` | Перечитать проекты |
+| `ofexcel_reload()` | `TABLE(source VARCHAR, query_id VARCHAR, ok BOOLEAN, message VARCHAR)` | Перечитать проекты. Строка на каждый файл `*.sql` (расширение без учёта регистра) в порядке имён проектов и файлов: `source` — `<проект>/queries/<файл>`; `query_id` — `@id`, если он годится по §1, иначе NULL; `message` — ошибки через `; ` или NULL. Определения проектов становятся ровно теми, что разобрались |
 | `ofexcel_call(kind VARCHAR, query VARCHAR, args JSON-строка VARCHAR)` | `VARCHAR` (JSON результата вызова) | Тот же путь, что `/v1/batch` |
 | `ofexcel_missing()` | `TABLE` колонок `meta.missing` | Недостающие данные |
 
-Настройки (`SET …`): `ofexcel_port` (INTEGER, 47321), `ofexcel_profile` (`'hosted'`/`'local'`), `ofexcel_hosted_origin` (VARCHAR), `ofexcel_tls_dir` (VARCHAR, пусто = `QEXCEL_HOME/tls`; §8.1), `ofexcel_refresh_parallel` (INTEGER, 4), `ofexcel_run_timeout` (INTEGER секунд, 1800), `ofexcel_spill_max_rows` (INTEGER, 10000), `ofexcel_write_chunk_rows` (INTEGER, 5000), `ofexcel_dataset_ttl_days` (INTEGER, 30), `ofexcel_addin_dir` (VARCHAR, пусто).
+Настройки (`SET …`): `ofexcel_port` (INTEGER, 47321), `ofexcel_profile` (`'hosted'`/`'local'`), `ofexcel_hosted_origin` (VARCHAR), `ofexcel_tls_dir` (VARCHAR, пусто = `QEXCEL_HOME/tls`; §8.1), `ofexcel_refresh_parallel` (INTEGER, 4), `ofexcel_run_timeout` (INTEGER секунд, 1800), `ofexcel_spill_max_rows` (INTEGER, 10000), `ofexcel_write_chunk_rows` (INTEGER, 5000), `ofexcel_dataset_ttl_days` (INTEGER, 30), `ofexcel_addin_dir` (VARCHAR, пусто), `ofexcel_projects_dir` (VARCHAR, пусто = `~/QExcel/projects`; §1).
 
 Все настройки `ofexcel_*` регистрируются с областью `GLOBAL`: обычный `SET` в `init.sql` действует на все соединения, включая те, что открывают HTTP-запросы. В DuckDB 2.0 настройка расширения без явной области — сессионная.
 
@@ -1016,6 +1030,7 @@ type Binding = {
 2. Миграции (§6.2).
 3. `init.sql` — `--init` или `QEXCEL_HOME/init.sql`, если файл есть. Названный в `--init`, но отсутствующий файл или ошибка в нём — отказ `E_BAD_REQUEST` с именем файла.
 3a. Секреты подключений из `meta.connections` (§8.3) — для строк, чьё имя ещё не занято секретом: секрет из `init.sql` с тем же именем остаётся. Строка, из которой секрет не создаётся, пишется в stderr и пропускается.
+3b. Реестр запросов: встроенные примеры, затем проекты из `ofexcel_projects_dir` (его может задать `init.sql`), как `ofexcel_reload()`. Файл, который не разбирается, пишется в stderr и не мешает запуску.
 4. Флаги `--port`, `--origin` — поверх значений из `init.sql`.
 5. `SET` из `SPEC.md` §8.4. `memory_limit = '2GB'` и `threads = 4` задаются при открытии базы, поэтому `init.sql` может их изменить; остальные — после флагов.
 6. `SET lock_configuration = true`; после этого `SET` отказывает в любом соединении.

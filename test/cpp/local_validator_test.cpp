@@ -123,6 +123,23 @@ void TestParameters() {
 	Ok("V8 any case", "SELECT $BU");
 	Broken("V8 $1", "SELECT * FROM ap_invoices WHERE org_id = $1", "V8", "$1");
 	Broken("V8 in a CTE", "WITH t AS (SELECT $x) SELECT * FROM t", "V8", "$x");
+
+	// What the editor lists as used: $name, lower case, once each, in order.
+	auto verdict = ValidateLocalSql("SELECT $BU, $bu FROM ap_invoices WHERE x = $bu", Scope());
+	if (!verdict.ok || verdict.params_in_text != std::vector<std::string> {"bu"}) {
+		std::cerr << "params_in_text: one entry for $BU and $bu\n";
+		failures++;
+	}
+	verdict = ValidateLocalSql("SELECT $bu, $x", Scope());
+	if (verdict.ok || verdict.params_in_text != std::vector<std::string> {"bu", "x"}) {
+		std::cerr << "params_in_text: names met up to the refusal\n";
+		failures++;
+	}
+	verdict = ValidateLocalSql("SELECT $1", Scope());
+	if (verdict.ok || !verdict.params_in_text.empty()) {
+		std::cerr << "params_in_text: never a positional parameter\n";
+		failures++;
+	}
 }
 
 } // namespace

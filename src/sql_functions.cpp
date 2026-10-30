@@ -6,6 +6,7 @@
 #include "ofexcel/http_server.hpp"
 #include "ofexcel/local_validator.hpp"
 #include "ofexcel/paths.hpp"
+#include "ofexcel/query_registry.hpp"
 #include "ofexcel/version.hpp"
 
 #include <string>
@@ -63,9 +64,22 @@ std::string TlsDirSetting(ClientContext &context) {
 	}
 }
 
-//! Reads ofexcel_profile, ofexcel_hosted_origin, ofexcel_port, ofexcel_tls_dir
-//! and ofexcel_addin_dir into the options a server starts with. Every refusal
-//! names the setting to fix.
+//! ofexcel_projects_dir, or ~/QExcel/projects when it is empty.
+std::string ProjectsDirSetting(ClientContext &context) {
+	const auto configured = StringSetting(context, "ofexcel_projects_dir");
+	if (!configured.empty()) {
+		return configured;
+	}
+	try {
+		return DefaultProjectsDir();
+	} catch (const std::exception &error) {
+		throw duckdb::InvalidInputException("E_BAD_REQUEST: %s; задайте SET ofexcel_projects_dir", error.what());
+	}
+}
+
+//! Reads ofexcel_profile, ofexcel_hosted_origin, ofexcel_port, ofexcel_tls_dir,
+//! ofexcel_addin_dir and ofexcel_projects_dir into the options a server starts
+//! with. Every refusal names the setting to fix.
 ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override) {
 	ServerOptions options;
 
@@ -97,6 +111,7 @@ ServerOptions OptionsFromSettings(ClientContext &context, int64_t port_override)
 	}
 	options.guard.port = static_cast<int>(port);
 	options.tls_dir = TlsDirSetting(context);
+	options.projects_dir = ProjectsDirSetting(context);
 	Value probe;
 	options.probe_routes = context.TryGetCurrentSetting("ofexcel_probe_routes", probe) && !probe.IsNull() && probe.GetValue<bool>();
 	return options;
@@ -327,6 +342,60 @@ duckdb::unique_ptr<GlobalTableFunctionState> SetEnvironmentInit(ClientContext &c
 	return std::move(state);
 }
 
+// --- ofexcel_queries ---------------------------------------------------------
+
+duckdb::unique_ptr<FunctionData> QueriesBind(ClientContext &, TableFunctionBindInput &,
+                                             duckdb::vector<LogicalType> &return_types,
+                                             duckdb::vector<Identifier> &names) {
+	names = {"query_id", "definition_hash", "version", "engine", "source_kind", "source_ref", "trusted"};
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR,
+	                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BOOLEAN};
+	return duckdb::make_uniq<duckdb::TableFunctionData>();
+}
+
+//! Reads on a connection of its own, as ofexcel_set_environment writes.
+duckdb::unique_ptr<GlobalTableFunctionState> QueriesInit(ClientContext &context, TableFunctionInitInput &) {
+	duckdb::Connection connection(*context.db);
+	auto state = duckdb::make_uniq<RowsState>();
+	for (const auto &definition : AllDefinitions(connection)) {
+		state->rows.push_back({Value(definition.query_id), Value(definition.definition_hash),
+		                       Value::INTEGER(definition.version), Value(definition.engine),
+		                       Value(definition.source_kind), Value(definition.source_ref),
+		                       Value::BOOLEAN(definition.trusted)});
+	}
+	return std::move(state);
+}
+
+// --- ofexcel_reload ----------------------------------------------------------
+
+struct ReloadBindData : public duckdb::TableFunctionData {
+	std::string projects_dir;
+};
+
+duckdb::unique_ptr<FunctionData> ReloadBind(ClientContext &context, TableFunctionBindInput &,
+                                            duckdb::vector<LogicalType> &return_types,
+                                            duckdb::vector<Identifier> &names) {
+	auto bind_data = duckdb::make_uniq<ReloadBindData>();
+	bind_data->projects_dir = ProjectsDirSetting(context);
+	names = {"source", "query_id", "ok", "message"};
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BOOLEAN, LogicalType::VARCHAR};
+	return std::move(bind_data);
+}
+
+//! One row per project file read; query_id and message NULL where empty.
+duckdb::unique_ptr<GlobalTableFunctionState> ReloadInit(ClientContext &context, TableFunctionInitInput &input) {
+	const auto &bind_data = input.bind_data->Cast<ReloadBindData>();
+	duckdb::Connection connection(*context.db);
+	auto state = duckdb::make_uniq<RowsState>();
+	for (const auto &entry : ReloadProjects(connection, bind_data.projects_dir)) {
+		state->rows.push_back({Value(entry.source),
+		                       entry.query_id.empty() ? Value(LogicalType::VARCHAR) : Value(entry.query_id),
+		                       Value::BOOLEAN(entry.ok),
+		                       entry.message.empty() ? Value(LogicalType::VARCHAR) : Value(entry.message)});
+	}
+	return std::move(state);
+}
+
 // --- ofexcel_version ---------------------------------------------------------
 
 void VersionFunction(DataChunk &, ExpressionState &, Vector &result) {
@@ -379,6 +448,9 @@ void RegisterSettings(duckdb::ExtensionLoader &loader) {
 	add("ofexcel_addin_dir",
 	    "Local profile: directory /addin/ is served from; empty means the files built into ofexceld.",
 	    LogicalType::VARCHAR, Value(""));
+	add("ofexcel_projects_dir",
+	    "Directory of query projects, <project>/queries/*.sql; empty means ~/QExcel/projects.", LogicalType::VARCHAR,
+	    Value(""));
 	add("ofexcel_probe_routes", "Phase 0 only: serve /v1/probe/rows for the add-in probe. Off by default.",
 	    LogicalType::BOOLEAN, Value::BOOLEAN(false));
 }
@@ -402,6 +474,9 @@ void RegisterSqlFunctions(duckdb::ExtensionLoader &loader) {
 
 	loader.RegisterFunction(TableFunction("ofexcel_set_environment", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                      ScanRows, SetEnvironmentBind, SetEnvironmentInit));
+
+	loader.RegisterFunction(RowsFunction("ofexcel_queries", QueriesBind, QueriesInit));
+	loader.RegisterFunction(RowsFunction("ofexcel_reload", ReloadBind, ReloadInit));
 
 	loader.RegisterFunction(RowsFunction("ofexcel_stop", StopBind, StopInit));
 	loader.RegisterFunction(RowsFunction("ofexcel_status", StatusBind, StatusInit));

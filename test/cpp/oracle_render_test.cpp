@@ -256,6 +256,38 @@ void TestValuesAndWarnings() {
 	}
 }
 
+void TestCheckText() {
+	// What the editor sees without values: the names used, in order, once each.
+	auto check = CheckOracleText("SELECT :BU, :n FROM t WHERE x IN :ids AND y = :bu", Params());
+	if (!check.ok || check.params_in_text != std::vector<std::string> {"bu", "n", "ids"} || check.warnings.size() != 5) {
+		std::cerr << "check text: names used and warnings for the rest\n";
+		failures++;
+	}
+	// A missing value is not the text's problem.
+	check = CheckOracleText("SELECT :bu FROM dual", Params(false));
+	if (!check.ok) {
+		std::cerr << "check text: no value needed\n";
+		failures++;
+	}
+	check = CheckOracleText("SELECT :bu, :nope FROM dual", Params());
+	if (check.ok || check.code != "E_PARAM_UNKNOWN" || check.params_in_text != std::vector<std::string> {"bu", "nope"}) {
+		std::cerr << "check text: an undeclared name is refused and still listed\n";
+		failures++;
+	}
+	for (const auto &refused : std::vector<std::pair<std::string, std::string>> {
+	         {"SELECT 'x FROM dual", "E_SQL_TOKENIZE"},
+	         {"DELETE FROM t", "E_SQL_NOT_SELECT"},
+	         {"SELECT :1 FROM dual", "E_PARAM_POSITIONAL"},
+	         {"SELECT * FROM t WHERE x = :ids", "E_PARAM_LIST_CONTEXT"}}) {
+		check = CheckOracleText(refused.first, Params());
+		if (check.ok || check.code != refused.second) {
+			std::cerr << "check text: " << refused.first << " expected " << refused.second << ", got " << check.code
+			          << "\n";
+			failures++;
+		}
+	}
+}
+
 } // namespace
 
 int main() {
@@ -264,6 +296,7 @@ int main() {
 	TestListLiterals();
 	TestTokenizer();
 	TestValuesAndWarnings();
+	TestCheckText();
 	if (failures) {
 		std::cerr << failures << " render check(s) failed\n";
 		return EXIT_FAILURE;

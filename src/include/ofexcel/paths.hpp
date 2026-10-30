@@ -19,6 +19,12 @@ std::string QexcelHome();
 //! QexcelHome()/tls: the local CA and the server certificate (CONTRACTS.md §8.1).
 std::string DefaultTlsDir();
 
+//! ~/QExcel/projects (Windows %USERPROFILE%\QExcel\projects): one directory per
+//! project, its query files under queries/ (CONTRACTS.md §1). Not under
+//! QEXCEL_HOME: these are the author's files, kept where the author sees them.
+//! Throws std::runtime_error if the home directory cannot be determined.
+std::string DefaultProjectsDir();
+
 //! `directory` and `name` joined with the platform's separator.
 std::string JoinPath(const std::string &directory, const std::string &name);
 

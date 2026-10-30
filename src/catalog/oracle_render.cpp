@@ -386,7 +386,65 @@ RenderResult Refused(const std::string &code, const std::string &message) {
 	return result;
 }
 
+//! The text's own errors, which do not depend on the values: the tokenizer's,
+//! then every reference against @param. False with `code` and `message` set.
+bool CheckText(Tokenizer &tokenizer, const std::vector<QueryParam> &params, std::string &code, std::string &message) {
+	if (!tokenizer.Run(code, message)) {
+		return false;
+	}
+	for (const auto &reference : tokenizer.references) {
+		const auto *param = Find(params, reference.name);
+		if (!param) {
+			code = CODE_UNKNOWN;
+			message = "строка " + std::to_string(reference.line) + ": параметр :" + reference.name +
+			          " не объявлен в @param";
+			return false;
+		}
+		const bool is_list = param->type.kind == ParamKind::LIST;
+		if (is_list && !reference.after_in) {
+			code = CODE_LIST_CONTEXT;
+			message = "строка " + std::to_string(reference.line) + ": список :" + reference.name +
+			          " можно подставить только сразу после IN";
+			return false;
+		}
+	}
+	return true;
+}
+
+std::vector<std::string> UnusedParamWarnings(const Tokenizer &tokenizer, const std::vector<QueryParam> &params) {
+	std::vector<std::string> warnings;
+	for (const auto &param : params) {
+		bool used = false;
+		for (const auto &reference : tokenizer.references) {
+			used = used || reference.name == param.name;
+		}
+		if (!used) {
+			warnings.push_back("параметр " + param.name + " объявлен, но не используется в тексте запроса");
+		}
+	}
+	return warnings;
+}
+
 } // namespace
+
+OracleTextCheck CheckOracleText(const std::string &body, const std::vector<QueryParam> &params) {
+	OracleTextCheck check;
+	Tokenizer tokenizer(body);
+	const bool text_ok = CheckText(tokenizer, params, check.code, check.message);
+	// What the tokenizer found before it stopped is still what the text uses.
+	for (const auto &reference : tokenizer.references) {
+		if (std::find(check.params_in_text.begin(), check.params_in_text.end(), reference.name) ==
+		    check.params_in_text.end()) {
+			check.params_in_text.push_back(reference.name);
+		}
+	}
+	if (!text_ok) {
+		return check;
+	}
+	check.warnings = UnusedParamWarnings(tokenizer, params);
+	check.ok = true;
+	return check;
+}
 
 std::string OracleLiteral(const ParamType &type, const CanonicalValue &value) {
 	if (type.kind != ParamKind::LIST) {
@@ -417,20 +475,8 @@ RenderResult RenderOracle(const std::string &body, const std::vector<QueryParam>
 	Tokenizer tokenizer(body);
 	std::string code;
 	std::string message;
-	if (!tokenizer.Run(code, message)) {
+	if (!CheckText(tokenizer, params, code, message)) {
 		return Refused(code, message);
-	}
-	for (const auto &reference : tokenizer.references) {
-		const auto *param = Find(params, reference.name);
-		if (!param) {
-			return Refused(CODE_UNKNOWN, "строка " + std::to_string(reference.line) + ": параметр :" + reference.name +
-			                                 " не объявлен в @param");
-		}
-		const bool is_list = param->type.kind == ParamKind::LIST;
-		if (is_list && !reference.after_in) {
-			return Refused(CODE_LIST_CONTEXT, "строка " + std::to_string(reference.line) + ": список :" + reference.name +
-			                                      " можно подставить только сразу после IN");
-		}
 	}
 
 	// Then the values: every declared parameter, used or not, because all of
@@ -469,16 +515,7 @@ RenderResult RenderOracle(const std::string &body, const std::vector<QueryParam>
 	}
 	rendered += tokenizer.output.substr(copied);
 	result.rendered = std::move(rendered);
-
-	for (const auto &param : params) {
-		bool used = false;
-		for (const auto &reference : tokenizer.references) {
-			used = used || reference.name == param.name;
-		}
-		if (!used) {
-			result.warnings.push_back("параметр " + param.name + " объявлен, но не используется в тексте запроса");
-		}
-	}
+	result.warnings = UnusedParamWarnings(tokenizer, params);
 	result.ok = true;
 	return result;
 }

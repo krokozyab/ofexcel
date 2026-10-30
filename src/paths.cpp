@@ -85,4 +85,16 @@ std::string DefaultTlsDir() {
 	return JoinPath(QexcelHome(), "tls");
 }
 
+std::string DefaultProjectsDir() {
+#ifdef _WIN32
+	const auto home = EnvironmentVariable(L"USERPROFILE");
+#else
+	const auto home = EnvironmentVariable("HOME");
+#endif
+	if (home.empty()) {
+		throw std::runtime_error("Не найден домашний каталог пользователя: не найти каталог проектов QExcel");
+	}
+	return JoinPath(JoinPath(home, "QExcel"), "projects");
+}
+
 } // namespace ofexcel
