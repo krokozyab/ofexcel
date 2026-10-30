@@ -1,12 +1,17 @@
 // The task pane, and the shared runtime it is (SPEC.md §5.1): finds the
-// daemon, keeps an eye on it and on the connections, and shows both.
+// daemon, keeps an eye on it and on the connections, and shows both, with the
+// query editor under them.
 
 import { DaemonClient } from '../api/client';
 import { HealthMonitor } from '../api/health';
 import { locateDaemon } from '../config';
 import { ConnectionsModel } from '../connections/model';
-import { workbookId } from '../workbook';
+import { readCells, selectedAddress, uses1904DateSystem } from '../editor/excel';
+import { EditorModel } from '../editor/model';
+import { ensureWorkbookId, workbookId } from '../workbook/id';
+import { readPayload, writePayload } from '../workbook/office';
 import { ConnectionsView } from './connections_view';
+import { EditorSection } from './editor_view';
 import { describeStatus } from './status';
 
 Office.onReady(() => {
@@ -18,9 +23,15 @@ Office.onReady(() => {
 	});
 
 	const connections = new ConnectionsModel(client);
+	const editor = new EditorModel(
+		client,
+		{ ensureId: ensureWorkbookId, read: readPayload, write: writePayload },
+		{ read: readCells, selected: selectedAddress, date1904: uses1904DateSystem },
+	);
 	const main = document.querySelector('main');
 	if (main) {
 		new ConnectionsView(main, connections);
+		new EditorSection(main, editor, connections, client);
 	}
 
 	const bar = document.getElementById('status');

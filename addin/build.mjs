@@ -33,6 +33,8 @@ await esbuild.build({
 	format: 'iife',
 	target: ['es2020', 'safari15', 'chrome90'],
 	outfile: 'dist/taskpane.js',
+	// CodeMirror is most of the size; the source map keeps it debuggable.
+	minify: true,
 	sourcemap: 'linked',
 	legalComments: 'none',
 	logLevel: 'warning',

@@ -155,6 +155,8 @@ src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
 addin/src/api/              the daemon's API from the add-in: client, errors, versions, cache, health
 addin/src/connections/      connections and sign-in as the pane sees them (SPEC.md §3.1, DECISIONS.md R5)
+addin/src/editor/           the SQL editor: header rewriting, cell values, completions, Preview, saving (SPEC.md §5.2)
+addin/src/workbook/         the workbook: its id (§9.1) and the QExcel part, WorkbookPayload (CONTRACTS.md §9.2)
 addin/src/taskpane/         the task pane: entry point (the shared runtime), status bar, sections; dom.ts builds DOM
 addin/src/config.ts         where the daemon is: the page's origin (local) or the loopback (hosted)
 addin/test/                 add-in unit tests (node --test)

@@ -54,3 +54,62 @@ export interface ConnectionTest {
 	user?: string;
 	error?: { code: string; message: string };
 }
+
+export interface Warning {
+	code: string;
+	message: string;
+}
+
+/** A parameter as a query declares it (CONTRACTS.md §8.2 ParamDef). */
+export interface ParamDef {
+	name: string;
+	type: string;
+	default?: string;
+	description?: string;
+}
+
+/** A result column: its contract type (§3.2) and the header to show. */
+export interface ColumnInfo {
+	name: string;
+	header: string;
+	type: string;
+}
+
+/** A registered query (CONTRACTS.md §8.2 QuerySummary). */
+export interface QuerySummary {
+	id: string;
+	hash: string;
+	version: number;
+	engine: 'oracle' | 'local';
+	title?: string;
+	description?: string;
+	params: ParamDef[];
+	columns: ColumnInfo[];
+	source: { kind: 'project' | 'workbook' | 'example'; ref: string };
+	trusted: boolean;
+}
+
+export interface Problem {
+	code: string;
+	message: string;
+	line?: number;
+}
+
+/** POST /v1/queries/validate. */
+export interface Validation {
+	ok: boolean;
+	header?: QuerySummary;
+	params_in_text: string[];
+	errors: Problem[];
+	warnings: Warning[];
+}
+
+/** POST /v1/preview. */
+export interface Preview {
+	columns: ColumnInfo[];
+	rows: unknown[][];
+	elapsed_ms: number;
+	truncated: boolean;
+	rendered_sql?: string;
+	warnings: Warning[];
+}

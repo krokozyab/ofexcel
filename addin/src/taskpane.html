@@ -44,6 +44,38 @@
 		form label { display: block; margin: 6px 0; color: var(--muted); }
 		form input, form select { display: block; width: 100%; box-sizing: border-box; margin-top: 2px;
 		                          font: inherit; padding: 3px; color: var(--text); }
+		section.query { margin-top: 16px; }
+		h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); }
+		.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+		.toolbar h2 { margin: 0; flex: 1; }
+		.segments { display: inline-flex; }
+		.segments button { border-radius: 0; }
+		.segments button:first-child { border-radius: 4px 0 0 4px; }
+		.segments button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
+		.segments button.selected { background: var(--text); color: #fff; border-color: var(--text); }
+		.connection-select { font: inherit; flex: 1; min-width: 0; }
+		.label { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+		.label .environment, .preview th small { font-size: 11px; }
+		.label .environment { color: #fff; background: var(--env); border-radius: 3px; padding: 0 5px; font-weight: 600; }
+		.editor { border: 1px solid var(--line); border-radius: 4px; }
+		.editor .cm-editor { height: 220px; font-size: 12px; }
+		.editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
+		.param { display: grid; grid-template-columns: 1fr auto; gap: 4px; align-items: center; margin: 4px 0; }
+		.param .name { grid-column: 1 / -1; }
+		.param .name small { color: var(--muted); }
+		.param input, .param select { font: inherit; padding: 2px; min-width: 0; }
+		.param .cell { display: flex; gap: 4px; }
+		.param .cell input { flex: 1; }
+		.param.undeclared { border-left: 3px solid var(--warning); padding-left: 6px; }
+		.preview .grid { overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: 4px; }
+		.preview table { border-collapse: collapse; font-size: 12px; }
+		.preview th, .preview td { border-bottom: 1px solid var(--line); padding: 2px 6px; text-align: left;
+		                           white-space: nowrap; }
+		.preview th { position: sticky; top: 0; background: #f6f6f6; }
+		.preview th small { display: block; color: var(--muted); font-weight: normal; }
+		.preview pre { white-space: pre-wrap; font: 11px ui-monospace, Menlo, monospace; }
+		.save input.project { font: inherit; padding: 2px; width: 90px; }
+		.save-status.ok { color: var(--ok); }
 	</style>
 </head>
 <body>
