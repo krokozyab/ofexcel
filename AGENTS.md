@@ -88,6 +88,27 @@ curl -s -X POST -H 'Origin: https://localhost:3000' https://127.0.0.1:47321/v1/c
 ./build/release/extension/ofexcel/ofexceld uninstall-cert   # takes the CA out of the trust store
 ```
 
+The Excel add-in (`addin/`, TypeScript, no framework, bundled by esbuild; Node 20 or later).
+Its unit tests run in Node, without Excel or a daemon; CI runs the same four commands.
+```sh
+cd addin
+npm ci                 # esbuild, typescript, @types/office-js, pinned in package-lock.json
+npm run typecheck      # tsc over src/
+npm test               # test/*.test.ts, bundled for node --test
+npm run build          # dist/ (served at /addin/), build/manifest.local.xml, build/init.local.sql
+```
+Trying it in Excel for Mac, local profile: the CA must be trusted (`ofexceld install-cert` without
+`--no-trust`), the daemon serves `addin/dist`, and Excel loads the manifest from its sideload folder.
+Restart Excel after a rebuild: the shared runtime lives as long as Excel does (SPEC.md §5.1).
+`build/init.local.sql` stands in for `QEXCEL_HOME/init.sql` for that run; connections saved in the
+database are still there, those made by your own `init.sql` are not.
+```sh
+./build/release/extension/ofexcel/ofexceld serve --init addin/build/init.local.sql
+mkdir -p ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef
+cp addin/build/manifest.local.xml ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/qexcel.xml
+# Excel → Home → Add-ins → QExcel (under Developer Add-ins), then the QExcel button on the Home tab.
+```
+
 ## Layout
 
 ```
@@ -132,6 +153,12 @@ src/server/routes_formulas.cpp /v1/batch, /v1/catalog
 src/server/routes_dictionary.cpp /v1/dictionary/*: Fusion tables and columns for the editor
 src/server/json_body.cpp    JsonObject, ErrorBody — the only way to build JSON; JsonDocument reads bodies
 src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by code routes and SQL share
+addin/src/api/              the daemon's API from the add-in: client, errors, versions, cache, health
+addin/src/taskpane/         the task pane: entry point (the shared runtime) and status bar
+addin/src/config.ts         where the daemon is: the page's origin (local) or the loopback (hosted)
+addin/test/                 add-in unit tests (node --test)
+addin/manifest.template.xml the add-in manifest; {{BASE_URL}} and {{VERSION}} filled by the build
+addin/functions.json        the core functions (CONTRACTS.md §10.1); a test keeps it equal to the daemon's
 test/sql/                   sqllogictests
 test/cpp/                   C++ suites; test_support.hpp is shared
 test/http/                  scripts that run ofexceld as a process (POSIX only)

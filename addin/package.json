@@ -1,0 +1,21 @@
+{
+  "name": "qexcel-addin",
+  "version": "0.1.0-dev",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "QExcel's Excel add-in: the task pane and the custom functions (SPEC.md §5).",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/office-js": "1.0.612",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

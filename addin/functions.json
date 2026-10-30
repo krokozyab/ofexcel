@@ -1,0 +1,26 @@
+{
+  "functions": [
+    { "id": "TABLE", "name": "TABLE",
+      "description": "QExcel query result as an array; the first row holds the headers",
+      "parameters": [
+        { "name": "query", "type": "string", "dimensionality": "scalar" },
+        { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
+      "result": { "type": "any", "dimensionality": "matrix" } },
+    { "id": "CALL", "name": "CALL",
+      "description": "Scalar value of a QExcel query (a 1 × 1 result)",
+      "parameters": [
+        { "name": "query", "type": "string", "dimensionality": "scalar" },
+        { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
+      "result": { "type": "any", "dimensionality": "scalar" } },
+    { "id": "ASOF", "name": "ASOF",
+      "description": "Time the query data was last fetched successfully",
+      "parameters": [
+        { "name": "query", "type": "string", "dimensionality": "scalar", "optional": true },
+        { "name": "args", "type": "any", "dimensionality": "matrix", "repeating": true, "optional": true } ],
+      "result": { "type": "number", "dimensionality": "scalar" } },
+    { "id": "STATUS", "name": "STATUS",
+      "description": "QExcel status: OK, NOT_SIGNED_IN, STALE, OFFLINE",
+      "parameters": [],
+      "result": { "type": "string", "dimensionality": "scalar" } }
+  ]
+}

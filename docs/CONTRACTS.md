@@ -687,7 +687,7 @@ UPDATE meta.state SET value = CAST(CAST(value AS BIGINT) + 1 AS VARCHAR) WHERE k
   Access-Control-Max-Age: 600
   Vary: Origin
   ```
-  На остальные ответы для разрешённого `Origin` — `Access-Control-Allow-Origin` и `Vary: Origin`.
+  На остальные ответы для разрешённого `Origin` — `Access-Control-Allow-Origin`, `Access-Control-Expose-Headers: X-OF-Data-Version, X-OF-Catalog-Version` (без него скрипт с другого источника эти заголовки не прочтёт) и `Vary: Origin`.
 - **Каждый ответ** `/v1/*` содержит заголовки `X-OF-Data-Version` и `X-OF-Catalog-Version`.
 - **Ошибка:** HTTP-статус из §14 и тело
   ```ts

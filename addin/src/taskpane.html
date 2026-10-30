@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>QExcel</title>
+	<!-- Office.js has to come from Microsoft's CDN; everything else is served with the page. -->
+	<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+	<style>
+		:root { --text: #1f1f1f; --muted: #616161; --line: #e0e0e0; --bg: #ffffff;
+		        --ok: #217346; --warning: #8a5a00; --error: #a4262c; }
+		body { font: 13px -apple-system, "Segoe UI", sans-serif; margin: 0; color: var(--text); background: var(--bg); }
+		main { padding: 12px; }
+		.status { position: sticky; top: 0; padding: 6px 12px; border-bottom: 1px solid var(--line);
+		          color: var(--muted); background: var(--bg); }
+		.status::before { content: "●"; margin-right: 6px; }
+		.status[data-tone="ok"]::before { color: var(--ok); }
+		.status[data-tone="warning"]::before { color: var(--warning); }
+		.status[data-tone="error"]::before { color: var(--error); }
+		.status[data-tone="error"] { color: var(--error); }
+	</style>
+</head>
+<body>
+	<div id="status" class="status" role="status" data-tone="pending">Connecting to ofexceld…</div>
+	<!-- Office's pane title already says QExcel. -->
+	<main></main>
+	<script src="taskpane.js"></script>
+</body>
+</html>

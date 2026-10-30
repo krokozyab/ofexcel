@@ -73,6 +73,9 @@ void InstallGuard(httplib::Server &server, const GuardConfig &guard) {
 		}
 		if (guard.profile == Profile::HOSTED) {
 			response.set_header("Access-Control-Allow-Origin", guard.hosted_origin);
+			// Cross-origin script reads no custom header unless it is listed, and
+			// the add-in follows these two to drop its cached results.
+			response.set_header("Access-Control-Expose-Headers", "X-OF-Data-Version, X-OF-Catalog-Version");
 			response.set_header("Vary", "Origin");
 		}
 		return httplib::Server::HandlerResponse::Unhandled;

@@ -11,6 +11,10 @@ testext
 test/python/__pycache__/
 .DS_Store
 
+# add-in: dependencies and what the build writes (build/ is ignored above)
+node_modules/
+addin/dist/
+
 # add-in probe: loaded data and saved reports stay local
 tools/addin-probe/state/
 tools/addin-probe/reports/

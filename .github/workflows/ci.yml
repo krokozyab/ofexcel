@@ -4,6 +4,7 @@
 #
 # The reusable workflow runs `make release` and `make test` (the sqllogictests).
 # It does not run the C++ suites or publish ofexceld; both are separate tasks.
+# The add-in job type-checks, tests and builds addin/ (TASKS.md D1).
 #
 name: CI
 on:
@@ -28,3 +29,21 @@ jobs:
       ci_tools_version: v2.0-cyanoptera
       extension_name: ofexcel
       exclude_archs: 'linux_amd64;linux_amd64_musl;linux_arm64;linux_arm64_musl;osx_amd64;wasm_mvp;wasm_eh;wasm_threads;windows_amd64_mingw;windows_arm64'
+
+  addin:
+    name: Add-in
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: addin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: addin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

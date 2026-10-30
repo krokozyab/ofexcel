@@ -104,6 +104,7 @@ void TestHealthAnswersTheHostedOrigin(int port) {
 	CHECK(Contains(response->body, "\"profile\":\"hosted\""));
 	CHECK(Contains(response->body, "\"data_version\":0"));
 	CHECK(response->get_header_value("Access-Control-Allow-Origin") == ORIGIN);
+	CHECK(response->get_header_value("Access-Control-Expose-Headers") == "X-OF-Data-Version, X-OF-Catalog-Version");
 	CHECK(response->get_header_value("Vary") == "Origin");
 	CHECK(response->get_header_value("X-OF-Data-Version") == "0");
 	CHECK(response->has_header("X-OF-Catalog-Version"));
