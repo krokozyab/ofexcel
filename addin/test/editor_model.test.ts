@@ -218,6 +218,42 @@ test('saving to the workbook: an id, every query registered, this one trusted, t
 	assert.deepEqual(written.bindings, [{ binding_id: 'kept' }]);
 });
 
+test('saving a query again takes its tables along to the new text (D9)', async () => {
+	const daemon = fakeDaemon();
+	const existing = emptyPayload(WORKBOOK);
+	existing.queries.push(
+		{ id: 'invoices', hash: 'hash-before-edit', text: '-- @id: invoices\n…', saved_at: 't' },
+		{ id: 'other', hash: 'hash-of-other', text: '-- @id: other\n…', saved_at: 't' },
+	);
+	const binding = (id: string, query: { id: string; hash: string }, params: Record<string, unknown>) => ({
+		binding_id: id,
+		target: { kind: 'table', sheet: 'Sheet1', table: id },
+		query,
+		params,
+		schema_policy: 'strict',
+		query_columns: 2,
+	});
+	existing.bindings.push(
+		binding('tblInvoices', { id: 'Invoices', hash: 'hash-before-edit' }, {
+			bu: { value: '204' },
+			since: { ref: 'Sheet1!B2' },
+			dropped: { value: 'x' },
+		}),
+		binding('tblOther', { id: 'other', hash: 'hash-of-other' }, { a: { value: '1' } }),
+	);
+	const workbook = fakeWorkbook(existing);
+	const model = new EditorModel(daemon.client, workbook.access, fakeSheet({}));
+	model.setText(TEXT);
+	await model.saveToWorkbook();
+
+	const [invoices, other] = workbook.state.payload!.bindings as Array<{ query: unknown; params: unknown }>;
+	assert.deepEqual(invoices.query, { id: 'Invoices', hash: 'hash-of-invoices' });
+	assert.deepEqual(invoices.params, { bu: { value: '204' }, since: { ref: 'Sheet1!B2' } });
+	// A query whose text did not change keeps its bindings as they were.
+	assert.deepEqual(other.query, { id: 'other', hash: 'hash-of-other' });
+	assert.deepEqual(other.params, { a: { value: '1' } });
+});
+
 test('a text the daemon refuses never reaches the workbook', async () => {
 	const daemon = fakeDaemon({ refuseWorkbook: true });
 	const workbook = fakeWorkbook();

@@ -390,7 +390,13 @@ export class EditorSection {
 
 	private saveToWorkbook(): void {
 		const connection = this.connections.connections.find((item) => item.name === this.model.connection);
-		void this.model.saveToWorkbook(connection?.user);
+		// The tables of this query now point at its new text: read them again.
+		void this.model
+			.saveToWorkbook(connection?.user)
+			.then(() => this.tables.load())
+			.catch(() => {
+				// The save says itself why it failed.
+			});
 	}
 }
 

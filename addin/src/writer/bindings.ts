@@ -39,6 +39,33 @@ export function withBinding(payload: WorkbookPayload, binding: Binding): Workboo
 	};
 }
 
+/** After the workbook's queries were saved again (TASKS.md D9): each binding
+ * follows its query to its new hash, and loses the parameters the new text no
+ * longer declares. `params` gives each query's parameter names by id (lower
+ * case); a query without an entry keeps its bindings as they are. */
+export function rebind(payload: WorkbookPayload, params: Map<string, string[]>): WorkbookPayload {
+	const hashes = new Map(payload.queries.map((query) => [query.id.toLowerCase(), query.hash]));
+	return {
+		...payload,
+		bindings: bindingsOf(payload).map((binding) => {
+			// The payload is read as it is; a binding this add-in did not write may lack a query.
+			if (typeof binding.query?.id !== 'string') {
+				return binding;
+			}
+			const id = binding.query.id.toLowerCase();
+			const hash = hashes.get(id);
+			const names = params.get(id);
+			if (!hash || hash === binding.query.hash || !names) {
+				return binding;
+			}
+			const kept = Object.fromEntries(
+				Object.entries(binding.params).filter(([name]) => names.includes(name.toLowerCase())),
+			);
+			return { ...binding, query: { ...binding.query, hash }, params: kept };
+		}),
+	};
+}
+
 export function withoutBinding(payload: WorkbookPayload, bindingId: string): WorkbookPayload {
 	return { ...payload, bindings: bindingsOf(payload).filter((binding) => binding.binding_id !== bindingId) };
 }

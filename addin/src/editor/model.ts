@@ -8,7 +8,7 @@ import type { DaemonClient } from '../api/client';
 import { DaemonError } from '../api/errors';
 import type { ParamDef, Preview, QuerySummary, Validation } from '../api/types';
 import { emptyPayload, withQuery, type WorkbookPayload } from '../workbook/payload';
-import type { ParamBinding } from '../writer/bindings';
+import { type ParamBinding, rebind } from '../writer/bindings';
 import { cellsToParam, type ParamValue } from './cells';
 import { declareParam, engineOf, newQueryText, setDirective, type Engine, type ParamDeclaration } from './query_text';
 
@@ -275,6 +275,13 @@ export class EditorModel {
 			workbook_id: workbookId,
 			queries: payload.queries.map((query, index) => ({ ...query, hash: registered.queries[index].hash })),
 		};
+		// TASKS.md D9: the tables bound to a query follow it to its new text.
+		payload = rebind(
+			payload,
+			new Map(
+				registered.queries.map((summary) => [summary.id.toLowerCase(), summary.params.map((param) => param.name)]),
+			),
+		);
 		const hash = payload.queries.find((query) => query.id.toLowerCase() === id.toLowerCase())!.hash;
 		await this.client.post('/v1/trust', { workbook_id: workbookId, hashes: [hash] });
 		await this.workbook.write(payload);
