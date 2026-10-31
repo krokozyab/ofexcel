@@ -7,6 +7,7 @@ import type { DaemonClient } from '../api/client';
 import { DaemonError } from '../api/errors';
 import type { MissingEntry, Run } from '../api/types';
 import { describeFetching, describeParams, RunEnded, waitForRun } from './runs';
+import type { BeforeRun } from './tables';
 
 /** What a missing entry's connection is when the query is a Local one. */
 const LOCAL = 'local';
@@ -16,6 +17,8 @@ export interface MissingModelOptions {
 	now?: () => number;
 	/** Whether the query `hash` may run: false for a query not trusted (§9.3). */
 	allows?: (hash: string) => boolean;
+	/** Before each run: the imports the query reads imported again (CONTRACTS.md §12 item 5). */
+	beforeRun?: BeforeRun;
 }
 
 export type MissingListener = () => void;
@@ -32,6 +35,7 @@ export class MissingModel {
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly now: () => number;
 	private readonly allows: (hash: string) => boolean;
+	private readonly beforeRun: BeforeRun;
 
 	constructor(
 		private readonly client: DaemonClient,
@@ -42,6 +46,7 @@ export class MissingModel {
 		this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 		this.now = options.now ?? (() => Date.now());
 		this.allows = options.allows ?? (() => true);
+		this.beforeRun = options.beforeRun ?? (async () => {});
 	}
 
 	onChange(listener: MissingListener): () => void {
@@ -83,6 +88,7 @@ export class MissingModel {
 			const label = `${index + 1} of ${queue.length}: ${entry.query.id}`;
 			this.setBusy(`${label} · starting`);
 			try {
+				await this.beforeRun(entry.query, (text) => this.setBusy(`${label} · ${text}`));
 				const started = await this.client.post<Run>('/v1/runs', {
 					query: entry.query,
 					...(entry.connection === LOCAL ? {} : { connection: entry.connection }),

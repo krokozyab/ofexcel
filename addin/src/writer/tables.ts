@@ -42,7 +42,12 @@ export interface TablesModelOptions {
 	sleep?: (ms: number) => Promise<void>;
 	newId?: () => string;
 	now?: () => number;
+	/** Before each run: the imports the query reads imported again (CONTRACTS.md §12 item 5). */
+	beforeRun?: BeforeRun;
 }
+
+/** What runs before a query does; throws to stop the run. */
+export type BeforeRun = (query: { id: string; hash: string }, busy: (text: string) => void) => Promise<void>;
 
 /** Why a binding may not run now, or "": its query is not trusted, its
  * connection is not the one the workbook was made for (CONTRACTS.md §9.3). */
@@ -64,6 +69,7 @@ export class TablesModel {
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly newId: () => string;
 	private readonly now: () => number;
+	private readonly beforeRun: BeforeRun;
 	/** Runs asked to stop: they say "Cancelling…" until they do. */
 	private readonly cancelling = new Set<string>();
 	private guard: BindingGuard = () => '';
@@ -78,6 +84,7 @@ export class TablesModel {
 		this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 		this.newId = options.newId ?? (() => uuidV4(crypto.getRandomValues(new Uint8Array(16))));
 		this.now = options.now ?? (() => Date.now());
+		this.beforeRun = options.beforeRun ?? (async () => {});
 	}
 
 	setGuard(guard: BindingGuard): void {
@@ -266,6 +273,7 @@ export class TablesModel {
 	 * the rows, speed and time. Resolves with a succeeded run; rejects with
 	 * RunEnded when it did not succeed. */
 	private async run(binding: Binding, busy: (state: TableState) => void): Promise<Run> {
+		await this.beforeRun(binding.query, (text) => busy({ busy: text }));
 		const payload = await this.workbook.read();
 		const started = await this.client.post<Run>('/v1/runs', {
 			query: binding.query,

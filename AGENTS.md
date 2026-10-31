@@ -160,6 +160,8 @@ addin/src/workbook/         the workbook: its id (§9.1), the QExcel part (§9.2
 addin/src/writer/           Excel Tables (CONTRACTS.md §11): values, schema, writer (tested), excel_table.ts (Office.js),
                             tables.ts: load into a table, refresh with progress and Cancel, history, retry a write;
                             runs.ts: following a run and its words; missing.ts: Smart Refresh (/v1/missing)
+addin/src/importer/         importing a sheet's table (CONTRACTS.md §12): infer.ts (name, column types, cells; tested),
+                            excel_source.ts (Office.js), imports.ts (chunks, re-import before runs), workbook_imports.ts
 addin/src/taskpane/         the task pane: entry point (the shared runtime), status bar, sections; dom.ts builds DOM
 addin/src/config.ts         where the daemon is: the page's origin (local) or the loopback (hosted)
 addin/test/                 add-in unit tests (node --test)
