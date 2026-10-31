@@ -2,18 +2,23 @@
 // daemon, keeps an eye on it and on the connections, asks about the workbook's
 // queries when it opens (CONTRACTS.md §9.3), and shows the connections, the
 // data the workbook's formulas miss (SPEC.md §7.5), the tables, the imports
-// (CONTRACTS.md §12) and the query editor.
+// (CONTRACTS.md §12) and the query editor. It also runs the OF functions
+// (CONTRACTS.md §10), and recalculates them when what they show moves.
 
 import { DaemonClient } from '../api/client';
-import { HealthMonitor } from '../api/health';
+import { type DaemonState, HealthMonitor } from '../api/health';
 import { locateDaemon } from '../config';
 import { ConnectionsModel } from '../connections/model';
 import { excelSource } from '../importer/excel_source';
 import { ImportsModel } from '../importer/imports';
 import { readCells, selectedAddress, uses1904DateSystem } from '../editor/excel';
 import { EditorModel } from '../editor/model';
+import { FormulaService } from '../functions/formulas';
+import { formulaStatus, workbookAsof } from '../functions/local';
+import { Recalculation, registerFunctions } from '../functions/register';
 import { ensureWorkbookId, workbookId } from '../workbook/id';
 import { readPayload, writePayload } from '../workbook/office';
+import { defaultConnection, setDefaultConnection } from '../workbook/settings';
 import { connectionProblem, WorkbookTrust } from '../workbook/trust';
 import type { Binding } from '../writer/bindings';
 import { excelTables } from '../writer/excel_table';
@@ -66,9 +71,56 @@ Office.onReady(() => {
 	});
 	connections.onChange(() => tables.setGuard(guard));
 
+	// The OF functions (§10): registered first, as Excel may be waiting for them.
+	let date1904: Promise<boolean> | undefined;
+	const workbookDate1904 = () => (date1904 ??= uses1904DateSystem().catch(() => false));
+	let daemon: DaemonState = { kind: 'connecting' };
+	const status = () => {
+		const chosen = defaultConnection();
+		const connection = connections.connections.find((item) => item.name === chosen);
+		return formulaStatus({
+			online: daemon.kind === 'online',
+			defaultSignedIn: !chosen || connection?.signed_in === true,
+			stale:
+				tables.bindings.some((binding) => binding.partial !== undefined) ||
+				[...tables.states.values()].some((state) => state.error !== undefined),
+		});
+	};
+	const formulas = new FormulaService(client, {
+		connection: defaultConnection,
+		workbookId,
+		date1904: workbookDate1904,
+	});
+	void registerFunctions({
+		service: formulas,
+		workbookAsof: async () => workbookAsof(tables.bindings, await workbookDate1904()),
+		status,
+	}).catch(() => {
+		// functions.json unreadable: the formulas show Excel's own #NAME? until Excel restarts.
+	});
+	// What the formulas show moved: recalculate (SPEC.md §5.8).
+	const recalculation = new Recalculation();
+	client.versions.onChange(() => recalculation.request());
+	let shown = { status: status(), asof: workbookAsof(tables.bindings, false) };
+	const followFormulas = () => {
+		const now = { status: status(), asof: workbookAsof(tables.bindings, false) };
+		if (now.status !== shown.status || now.asof !== shown.asof) {
+			shown = now;
+			recalculation.request();
+		}
+	};
+	tables.onChange(followFormulas);
+	connections.onChange(followFormulas);
+
 	const main = document.querySelector('main');
 	if (main) {
-		new ConnectionsView(main, connections);
+		new ConnectionsView(main, connections, {
+			current: defaultConnection,
+			choose: async (name) => {
+				await setDefaultConnection(name);
+				recalculation.request();
+			},
+		});
 		new MissingView(main, missing);
 		new TablesView(main, tables, connections, () => void trust.open());
 		new ImportsView(main, imports);
@@ -92,6 +144,8 @@ Office.onReady(() => {
 	const bar = document.getElementById('status');
 	const monitor = new HealthMonitor(client, {
 		onChange(state) {
+			daemon = state;
+			followFormulas();
 			if (!bar) {
 				return;
 			}

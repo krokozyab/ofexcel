@@ -16,6 +16,11 @@ import { h } from './dom';
 
 const ENVIRONMENTS: Environment[] = ['DEV', 'TEST', 'PROD'];
 
+export interface FormulasConnection {
+	current(): string;
+	choose(name: string): Promise<void>;
+}
+
 export class ConnectionsView {
 	private readonly list = h('div', { class: 'connections' });
 	private readonly form: HTMLFormElement;
@@ -25,6 +30,8 @@ export class ConnectionsView {
 	constructor(
 		root: HTMLElement,
 		private readonly model: ConnectionsModel,
+		/** The workbook's default connection for formulas (CONTRACTS.md §10.2). */
+		private readonly formulas?: FormulasConnection,
 		private readonly now: () => number = Date.now,
 	) {
 		this.form = this.buildForm();
@@ -89,6 +96,16 @@ export class ConnectionsView {
 			connection.signed_in
 				? h('button', { disabled: busy, onclick: () => void this.model.signOut(name) }, 'Sign out')
 				: null,
+			this.formulas && this.formulas.current() !== name
+				? h(
+						'button',
+						{
+							title: 'Formulas of this workbook run Oracle queries on this connection',
+							onclick: () => void this.formulas?.choose(name).then(() => this.render()),
+						},
+						'Use in formulas',
+					)
+				: null,
 		);
 
 		return h(
@@ -107,6 +124,7 @@ export class ConnectionsView {
 				? h('div', { class: connection.tested.ok ? 'state ok' : 'problem' }, connection.tested.message)
 				: null,
 			connection.problem ? h('div', { class: 'problem' }, connection.problem) : null,
+			this.formulas?.current() === name ? h('div', { class: 'note' }, 'Formulas in this workbook use this connection') : null,
 			actions,
 		);
 	}
