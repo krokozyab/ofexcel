@@ -37,6 +37,10 @@ export interface TablesModelOptions {
 	newId?: () => string;
 }
 
+/** Why a binding may not run now, or "": its query is not trusted, its
+ * connection is not the one the workbook was made for (CONTRACTS.md §9.3). */
+export type BindingGuard = (binding: Binding) => string;
+
 export type TablesListener = () => void;
 
 export class TablesModel {
@@ -48,6 +52,7 @@ export class TablesModel {
 	private readonly listeners = new Set<TablesListener>();
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly newId: () => string;
+	private guard: BindingGuard = () => '';
 
 	constructor(
 		private readonly client: DaemonClient,
@@ -58,6 +63,28 @@ export class TablesModel {
 	) {
 		this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 		this.newId = options.newId ?? (() => uuidV4(crypto.getRandomValues(new Uint8Array(16))));
+	}
+
+	setGuard(guard: BindingGuard): void {
+		this.guard = guard;
+		this.emit();
+	}
+
+	/** Why `binding` may not run now; "" when it may. */
+	blocked(binding: Binding): string {
+		return this.guard(binding);
+	}
+
+	/** §9.3 item 5: the person chose the connection a binding runs on; the
+	 * workbook remembers it, with its host. */
+	async chooseConnection(bindingId: string, connection: { name: string; host: string }): Promise<void> {
+		try {
+			await this.save({ ...this.find(bindingId), connection });
+			this.states.delete(bindingId);
+		} catch (error) {
+			this.states.set(bindingId, { error: messageOf(error) });
+		}
+		this.emit();
 	}
 
 	onChange(listener: TablesListener): () => void {
@@ -98,6 +125,11 @@ export class TablesModel {
 	 * takes a changed set of columns as it is ("Apply new schema"). */
 	async refresh(bindingId: string, applyNew = false): Promise<void> {
 		const binding = this.find(bindingId);
+		const reason = this.guard(binding);
+		if (reason) {
+			this.setState(bindingId, { error: reason });
+			return;
+		}
 		this.states.set(bindingId, { busy: 'Running the query…' });
 		this.emit();
 		try {
@@ -113,7 +145,11 @@ export class TablesModel {
 	async retryWrite(bindingId: string): Promise<void> {
 		const binding = this.find(bindingId);
 		const runId = binding.partial?.run_id ?? binding.last_success?.run_id;
-		if (!runId) {
+		const reason = this.guard(binding);
+		if (!runId || reason) {
+			if (reason) {
+				this.setState(bindingId, { error: reason });
+			}
 			return;
 		}
 		this.setState(bindingId, { busy: 'Writing the rows again…' });

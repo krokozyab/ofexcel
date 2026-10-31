@@ -45,6 +45,17 @@
 		form input, form select { display: block; width: 100%; box-sizing: border-box; margin-top: 2px;
 		                          font: inherit; padding: 3px; color: var(--text); }
 		section.query, section.bound { margin-top: 16px; }
+		/* The trust dialog (CONTRACTS.md §9.3): over the whole pane until it is answered. */
+		.overlay { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35); overflow: auto; }
+		.overlay[hidden] { display: none; }
+		.dialog { background: var(--bg); margin: 12px; padding: 12px; border-radius: 6px; }
+		.trust-query { border-top: 1px solid var(--line); padding: 8px 0; }
+		.trust-query .environment { color: #fff; background: var(--env); border-radius: 3px; padding: 0 5px;
+		                            font-size: 11px; font-weight: 600; margin-left: 4px; }
+		pre.sql { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px ui-monospace, Menlo, monospace;
+		          background: #f6f6f6; border: 1px solid var(--line); border-radius: 4px; padding: 6px;
+		          max-height: 240px; overflow: auto; }
+		.dialog .actions { display: flex; gap: 6px; margin-top: 10px; }
 		.binding { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 4px;
 		           padding: 8px; margin-bottom: 8px; }
 		.binding .title { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }

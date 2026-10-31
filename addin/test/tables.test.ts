@@ -218,3 +218,25 @@ test('a write that stops is saved as partial; Retry write reads the same run; a 
 	await gone.retryWrite('b1');
 	assert.match(gone.states.get('b1')!.error!, /That result is gone/);
 });
+
+test('a blocked binding does not run; choosing a connection saves it with its host', async () => {
+	const { daemon, workbook, model: tablesModel } = model();
+	await tablesModel.loadToTable({
+		query: { id: 'invoices', hash: 'h1' },
+		connection: { name: 'dev', host: 'fa-other.example.com' },
+		params: {},
+	});
+	const runs = daemon.calls.filter((call) => call.path === '/v1/runs').length;
+
+	tablesModel.setGuard((binding) => (binding.connection?.host === 'fa-dev.example.com' ? '' : 'Choose the connection'));
+	await tablesModel.refresh('b1');
+	assert.equal(tablesModel.states.get('b1')?.error, 'Choose the connection');
+	assert.equal(daemon.calls.filter((call) => call.path === '/v1/runs').length, runs);
+
+	await tablesModel.chooseConnection('b1', { name: 'dev', host: 'fa-dev.example.com' });
+	assert.deepEqual((workbook.state.payload.bindings as Binding[])[0].connection, { name: 'dev', host: 'fa-dev.example.com' });
+	assert.equal(tablesModel.blocked(tablesModel.bindings[0]), '');
+	await tablesModel.refresh('b1');
+	assert.equal(daemon.calls.filter((call) => call.path === '/v1/runs').length, runs + 1);
+	assert.deepEqual(daemon.calls.filter((call) => call.path === '/v1/runs').at(-1)?.body.connection, 'dev');
+});

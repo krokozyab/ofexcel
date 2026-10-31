@@ -156,7 +156,7 @@ src/include/ofexcel/api_error.hpp  ApiError: a §14 code and status, thrown by c
 addin/src/api/              the daemon's API from the add-in: client, errors, versions, cache, health
 addin/src/connections/      connections and sign-in as the pane sees them (SPEC.md §3.1, DECISIONS.md R5)
 addin/src/editor/           the SQL editor: header rewriting, cell values, completions, Preview, saving (SPEC.md §5.2)
-addin/src/workbook/         the workbook: its id (§9.1) and the QExcel part, WorkbookPayload (CONTRACTS.md §9.2)
+addin/src/workbook/         the workbook: its id (§9.1), the QExcel part (§9.2), trust when it opens (§9.3)
 addin/src/writer/           Excel Tables (CONTRACTS.md §11): values, schema, writer (tested), excel_table.ts (Office.js),
                             tables.ts: load into a table, refresh, retry a write
 addin/src/taskpane/         the task pane: entry point (the shared runtime), status bar, sections; dom.ts builds DOM
