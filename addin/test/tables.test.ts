@@ -16,10 +16,15 @@ import type { TableIO, TableTarget } from '../src/writer/writer';
 const WORKBOOK = '0b6f3c1e-2a4d-4c8e-9f10-7d2e5a6b8c9d';
 const TEXT = '-- @id: invoices\n-- @engine: oracle\n-- @version: 1\n-- @param since: date\n-- @param bu: integer\nSELECT …';
 
-/** The daemon: runs that end as `outcome` after one poll, pages of `rows` rows. */
-function fakeDaemon(script: { outcome?: 'succeeded' | 'failed'; rows?: number; gone?: boolean } = {}) {
+/** The daemon: runs that end as `outcome` after `polls` polls (one by default),
+ * fetching 1,000 rows a poll; pages of `rows` rows; cancel honoured. */
+function fakeDaemon(
+	script: { outcome?: 'succeeded' | 'failed'; rows?: number; gone?: boolean; polls?: number; history?: unknown[] } = {},
+) {
 	const calls: Array<{ method: string; path: string; body: any }> = [];
 	let runs = 0;
+	let polls = 0;
+	let cancelled = false;
 	const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 		const path = String(input).replace('https://localhost:47321', '');
 		const body = init?.body ? JSON.parse(String(init.body)) : undefined;
@@ -31,13 +36,25 @@ function fakeDaemon(script: { outcome?: 'succeeded' | 'failed'; rows?: number; g
 			query: { id: 'invoices', hash: 'h1' },
 			connection: 'dev',
 			status,
-			rows_fetched: 3,
+			params: {},
+			started_at: '2026-10-31T09:00:00Z',
+			depends_on: [],
+			rows_fetched: status === 'running' ? polls * 1000 : 3,
 			truncated: false,
 			...(status === 'failed' ? { error: { code: 'E_FUSION_REJECTED', message: 'Oracle Fusion rejected the query: ORA-00942' } } : {}),
 		});
 		if (path === '/v1/runs') {
 			runs++;
+			polls = 0;
+			cancelled = false;
 			return json(202, run('running'));
+		}
+		if (/^\/v1\/runs\/run-\d+\/cancel$/.test(path)) {
+			cancelled = true;
+			return json(200, run('cancelled'));
+		}
+		if (path.startsWith('/v1/runs?')) {
+			return json(200, { runs: script.history ?? [] });
 		}
 		if (path === '/v1/queries/validate') {
 			return json(200, {
@@ -69,6 +86,12 @@ function fakeDaemon(script: { outcome?: 'succeeded' | 'failed'; rows?: number; g
 			});
 		}
 		if (/^\/v1\/runs\/run-\d+$/.test(path)) {
+			if (cancelled) {
+				return json(200, run('cancelled'));
+			}
+			if (++polls < (script.polls ?? 1)) {
+				return json(200, run('running'));
+			}
 			return json(200, run(script.outcome ?? 'succeeded'));
 		}
 		return json(404, { error: { code: 'E_NOT_FOUND', message: 'No such route' } });
@@ -239,4 +262,94 @@ test('a blocked binding does not run; choosing a connection saves it with its ho
 	await tablesModel.refresh('b1');
 	assert.equal(daemon.calls.filter((call) => call.path === '/v1/runs').length, runs + 1);
 	assert.deepEqual(daemon.calls.filter((call) => call.path === '/v1/runs').at(-1)?.body.connection, 'dev');
+});
+
+/** A model on a clock that moves a second each poll, recording what it shows. */
+function clocked(daemon: ReturnType<typeof fakeDaemon>, onSleep: (model: TablesModel) => void = () => {}) {
+	let clock = 0;
+	const tables = new FakeTables();
+	const workbook = fakeWorkbook();
+	const shown: Array<{ busy?: string; runId?: string }> = [];
+	const tablesModel: TablesModel = new TablesModel(daemon.client, workbook.access, sheet, tables, {
+		sleep: async () => {
+			clock += 1000;
+			onSleep(tablesModel);
+		},
+		newId: () => 'b1',
+		now: () => clock,
+	});
+	tablesModel.onChange(() => {
+		const state = tablesModel.states.get('b1') ?? tablesModel.loading;
+		if (state?.busy) {
+			shown.push({ busy: state.busy, ...(state.runId ? { runId: state.runId } : {}) });
+		}
+	});
+	return { tables, workbook, model: tablesModel, shown };
+}
+
+test('a run shows rows, speed and time, with Cancel until the rows are written', async () => {
+	const daemon = fakeDaemon({ polls: 4 });
+	const { model: tablesModel, shown } = clocked(daemon);
+	await tablesModel.loadToTable({ query: { id: 'invoices', hash: 'h1' }, params: {} });
+	await tablesModel.refresh('b1');
+
+	const fetching = shown.filter((state) => state.busy?.startsWith('Fetched'));
+	assert.ok(fetching.some((state) => state.busy === 'Fetched 2,000 rows · 1,000 rows/s · 0:02' && state.runId === 'run-2'));
+	assert.equal(fetching[0].busy, 'Fetched 0 rows · 0:00');
+	const writing = shown.filter((state) => state.busy?.startsWith('Writing'));
+	assert.ok(writing.length > 0 && writing.every((state) => state.runId === undefined));
+	assert.equal(tablesModel.states.get('b1')?.done, 'Fetched in 0:04 · written in 0:00');
+});
+
+test('Cancel: the run ends cancelled and the table keeps its last result', async () => {
+	let cancelAt = -1;
+	let sleeps = 0;
+	const daemon = fakeDaemon({ polls: 10 });
+	const { model: tablesModel, tables } = clocked(daemon, (model) => {
+		if (++sleeps === cancelAt) {
+			void model.cancel('b1');
+		}
+	});
+	await tablesModel.loadToTable({ query: { id: 'invoices', hash: 'h1' }, params: {} });
+	const before = { last: tablesModel.bindings[0].last_success, rows: tables.rows.map((row) => [...row]) };
+
+	cancelAt = sleeps + 2;
+	await tablesModel.refresh('b1');
+	assert.ok(daemon.calls.some((call) => call.path === '/v1/runs/run-2/cancel' && call.method === 'POST'));
+	assert.equal(tablesModel.states.get('b1')?.error, 'Cancelled: the table was not changed');
+	assert.deepEqual(tablesModel.bindings[0].last_success, before.last);
+	assert.deepEqual(tables.rows, before.rows);
+	assert.ok(!daemon.calls.some((call) => call.path.startsWith('/v1/runs/run-2/rows')));
+});
+
+test("History: the runs of the table's own query from this workbook, read when opened", async () => {
+	const run = (id: string, hash: string, extra: object = {}) => ({
+		run_id: id,
+		instance_key: 'k',
+		query: { id: 'invoices', hash },
+		connection: 'dev',
+		params: { bu: '204' },
+		status: 'succeeded',
+		started_at: '2026-10-31T09:00:00Z',
+		finished_at: '2026-10-31T09:00:12Z',
+		rows_fetched: 3,
+		truncated: false,
+		depends_on: [],
+		...extra,
+	});
+	const daemon = fakeDaemon({
+		history: [run('r3', 'h1'), run('r2', 'h-older'), run('r1', 'h1', { parent_run_id: 'r0' })],
+	});
+	const { model: tablesModel } = model(daemon);
+	await tablesModel.loadToTable({ query: { id: 'invoices', hash: 'h1' }, params: {} });
+
+	await tablesModel.toggleHistory('b1');
+	assert.ok(tablesModel.historyOpen.has('b1'));
+	assert.equal(daemon.calls.at(-1)?.path, `/v1/runs?query=invoices&workbook=${WORKBOOK}&limit=20`);
+	assert.deepEqual(tablesModel.history.get('b1')?.map((item) => item.run_id), ['r3']);
+
+	await tablesModel.refresh('b1');
+	assert.equal(daemon.calls.at(-1)?.path, `/v1/runs?query=invoices&workbook=${WORKBOOK}&limit=20`);
+	await tablesModel.toggleHistory('b1');
+	assert.ok(!tablesModel.historyOpen.has('b1'));
 });

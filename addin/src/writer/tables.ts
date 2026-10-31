@@ -1,8 +1,9 @@
 // The workbook's tables bound to queries (SPEC.md §5.4, CONTRACTS.md §9.2,
 // §11): loading a query into a new table, refreshing a bound one, and writing
 // a stopped write again. The run finishes completely before the sheet is
-// touched; a failed run leaves the table as it was. Progress, cancelling and
-// history are TASKS.md D6's.
+// touched; a failed or cancelled run leaves the table as it was, with its last
+// result. While a run goes on: rows, speed and time, and Cancel (SPEC.md §5.7,
+// DECISIONS.md R4); each table's history of runs on request.
 
 import type { DaemonClient } from '../api/client';
 import { DaemonError } from '../api/errors';
@@ -12,10 +13,11 @@ import type { SheetAccess, WorkbookAccess } from '../editor/model';
 import { uuidV4 } from '../workbook/payload';
 import { type Binding, bindingsOf, nowIso, type ParamBinding, withBinding } from './bindings';
 import { describeSchemaChange, type SchemaPlan } from './schema';
+import { describeFetching, describeWriting, formatElapsed, RunEnded, waitForRun } from './runs';
 import { PartialWrite, type RowsPage, SchemaChanged, type TableIO, writeResult } from './writer';
 
-/** How often a run going on is asked about. */
-export const RUN_POLL_MS = 500;
+/** How many runs a table's history shows. */
+export const HISTORY_LIMIT = 20;
 
 export interface LoadRequest {
 	query: { id: string; hash: string };
@@ -26,6 +28,10 @@ export interface LoadRequest {
 export interface TableState {
 	/** What is going on, for the pane: "Running the query…", "Writing 5000 of 100000 rows". */
 	busy?: string;
+	/** The run going on, while it may be cancelled: not once the rows are being written. */
+	runId?: string;
+	/** How the last refresh went: "Fetched in 0:12 · written in 0:03". */
+	done?: string;
 	error?: string;
 	/** The refused schema, for "Apply new schema". */
 	schema?: SchemaPlan;
@@ -35,6 +41,7 @@ export interface TableState {
 export interface TablesModelOptions {
 	sleep?: (ms: number) => Promise<void>;
 	newId?: () => string;
+	now?: () => number;
 }
 
 /** Why a binding may not run now, or "": its query is not trusted, its
@@ -49,9 +56,16 @@ export class TablesModel {
 	/** A load into a new table under way or just failed; its binding is saved
 	 * only once the table exists. */
 	loading: (TableState & { query: string }) | undefined;
+	/** The runs of each binding's query from this workbook, newest first, for the
+	 * bindings whose history is open. */
+	readonly history = new Map<string, Run[]>();
+	readonly historyOpen = new Set<string>();
 	private readonly listeners = new Set<TablesListener>();
 	private readonly sleep: (ms: number) => Promise<void>;
 	private readonly newId: () => string;
+	private readonly now: () => number;
+	/** Runs asked to stop: they say "Cancelling…" until they do. */
+	private readonly cancelling = new Set<string>();
 	private guard: BindingGuard = () => '';
 
 	constructor(
@@ -63,6 +77,7 @@ export class TablesModel {
 	) {
 		this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 		this.newId = options.newId ?? (() => uuidV4(crypto.getRandomValues(new Uint8Array(16))));
+		this.now = options.now ?? (() => Date.now());
 	}
 
 	setGuard(guard: BindingGuard): void {
@@ -109,10 +124,10 @@ export class TablesModel {
 			schema_policy: 'strict',
 			query_columns: 0,
 		};
-		this.loading = { query: request.query.id, busy: 'Running the query…' };
+		this.loading = { query: request.query.id, busy: 'Starting the query…' };
 		this.emit();
 		try {
-			const run = await this.run(binding, (busy) => this.setLoading({ busy }));
+			const run = await this.run(binding, (state) => this.setLoading(state));
 			await this.write(binding, run.run_id, false, true, (busy) => this.setLoading({ busy }));
 			this.loading = undefined;
 		} catch (error) {
@@ -130,13 +145,77 @@ export class TablesModel {
 			this.setState(bindingId, { error: reason });
 			return;
 		}
-		this.states.set(bindingId, { busy: 'Running the query…' });
+		this.states.set(bindingId, { busy: 'Starting the query…' });
 		this.emit();
+		const started = this.now();
 		try {
-			const run = await this.run(binding, (busy) => this.setState(bindingId, { busy }));
+			const run = await this.run(binding, (state) => this.setState(bindingId, state));
+			const fetched = this.now();
 			await this.write(binding, run.run_id, applyNew, false, (busy) => this.setState(bindingId, { busy }));
+			this.states.set(bindingId, {
+				...this.states.get(bindingId),
+				done: `Fetched in ${formatElapsed(fetched - started)} · written in ${formatElapsed(this.now() - fetched)}`,
+			});
 		} catch (error) {
 			this.fail(bindingId, error);
+		}
+		this.emit();
+		if (this.historyOpen.has(bindingId)) {
+			await this.loadHistory(bindingId);
+		}
+	}
+
+	/** "Cancel" (SPEC.md §5.7): the run of `bindingId`, or of the load into a new
+	 * table when it is undefined. The run then ends cancelled and the table
+	 * stays as it was. */
+	async cancel(bindingId?: string): Promise<void> {
+		const state = bindingId === undefined ? this.loading : this.states.get(bindingId);
+		const runId = state?.runId;
+		if (!runId) {
+			return;
+		}
+		this.cancelling.add(runId);
+		const cancelling = { ...state, busy: 'Cancelling…' };
+		if (bindingId === undefined) {
+			this.setLoading(cancelling);
+		} else {
+			this.setState(bindingId, cancelling);
+		}
+		try {
+			await this.client.post<Run>(`/v1/runs/${runId}/cancel`, {});
+		} catch {
+			// The run goes on being followed; how it ends is shown then.
+		}
+	}
+
+	/** Opens or closes the history of a binding's runs; opening reads it. */
+	async toggleHistory(bindingId: string): Promise<void> {
+		if (this.historyOpen.delete(bindingId)) {
+			this.emit();
+			return;
+		}
+		this.historyOpen.add(bindingId);
+		await this.loadHistory(bindingId);
+	}
+
+	/** GET /v1/runs?query=&workbook=: the runs of the binding's query. */
+	private async loadHistory(bindingId: string): Promise<void> {
+		const binding = this.find(bindingId);
+		const payload = await this.workbook.read();
+		const workbook = payload ? `&workbook=${encodeURIComponent(payload.workbook_id)}` : '';
+		try {
+			const { runs } = await this.client.get<{ runs: Run[] }>(
+				`/v1/runs?query=${encodeURIComponent(binding.query.id)}${workbook}&limit=${HISTORY_LIMIT}`,
+			);
+			// Only this binding's query: a query id saved again under the same id
+			// has another hash, and other runs of it are not this table's.
+			this.history.set(
+				bindingId,
+				runs.filter((run) => run.query.hash === binding.query.hash && run.parent_run_id === undefined),
+			);
+		} catch (error) {
+			this.history.delete(bindingId);
+			this.setState(bindingId, { ...this.states.get(bindingId), error: messageOf(error) });
 		}
 		this.emit();
 	}
@@ -174,16 +253,19 @@ export class TablesModel {
 	}
 
 	private fail(bindingId: string, error: unknown): void {
-		if (error instanceof SchemaChanged) {
+		if (error instanceof RunEnded && error.run.status === 'cancelled') {
+			this.states.set(bindingId, { error: 'Cancelled: the table was not changed' });
+		} else if (error instanceof SchemaChanged) {
 			this.states.set(bindingId, { error: describeSchemaChange(error.plan), schema: error.plan });
 		} else {
 			this.states.set(bindingId, { error: messageOf(error) });
 		}
 	}
 
-	/** POST /v1/runs, then GET /v1/runs/{id} until it is over. Resolves with a
-	 * succeeded run; rejects with why it did not succeed. */
-	private async run(binding: Binding, busy: (text: string) => void): Promise<Run> {
+	/** POST /v1/runs, then GET /v1/runs/{id} until it is over, telling `busy`
+	 * the rows, speed and time. Resolves with a succeeded run; rejects with
+	 * RunEnded when it did not succeed. */
+	private async run(binding: Binding, busy: (state: TableState) => void): Promise<Run> {
 		const payload = await this.workbook.read();
 		const started = await this.client.post<Run>('/v1/runs', {
 			query: binding.query,
@@ -191,16 +273,21 @@ export class TablesModel {
 			params: await this.paramValues(binding),
 			...(payload ? { workbook_id: payload.workbook_id } : {}),
 		});
-		let run = started;
-		while (run.status === 'running' || run.status === 'queued') {
-			busy(`Running the query… ${run.rows_fetched.toLocaleString('en-US')} rows so far`);
-			await this.sleep(RUN_POLL_MS);
-			run = await this.client.get<Run>(`/v1/runs/${run.run_id}`);
+		const since = this.now();
+		try {
+			return await waitForRun(this.client, started, {
+				sleep: this.sleep,
+				progress: (run) =>
+					busy({
+						busy: this.cancelling.has(run.run_id)
+							? 'Cancelling…'
+							: describeFetching(run.rows_fetched, this.now() - since),
+						runId: run.run_id,
+					}),
+			});
+		} finally {
+			this.cancelling.delete(started.run_id);
 		}
-		if (run.status !== 'succeeded') {
-			throw new Error(run.error ? run.error.message : `The run ended ${run.status}`);
-		}
-		return run;
 	}
 
 	/** The parameters' values: constants as they are, cells read now and turned
@@ -241,6 +328,7 @@ export class TablesModel {
 		busy: (text: string) => void,
 	): Promise<void> {
 		busy('Writing the rows…');
+		const since = this.now();
 		const read = (offset: number, limit: number) =>
 			this.client.get<RowsPage>(`/v1/runs/${runId}/rows?offset=${offset}&limit=${limit}`);
 		let updated: Binding;
@@ -259,8 +347,7 @@ export class TablesModel {
 								applyNew,
 							},
 						}),
-				progress: (written, total) =>
-					busy(`Writing ${written.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} rows`),
+				progress: (written, total) => busy(describeWriting(written, total, this.now() - since)),
 			});
 			const { partial: _partial, ...rest } = binding;
 			updated = {

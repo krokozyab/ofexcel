@@ -56,6 +56,14 @@
 		          background: #f6f6f6; border: 1px solid var(--line); border-radius: 4px; padding: 6px;
 		          max-height: 240px; overflow: auto; }
 		.dialog .actions { display: flex; gap: 6px; margin-top: 10px; }
+		section.missing { margin-top: 16px; }
+		section.missing[hidden] { display: none; }
+		/* Run history and missing data (SPEC.md §5.7, §7.5). */
+		ul.history { list-style: none; margin: 6px 0; padding: 0; font-size: 12px; }
+		ul.history li { border-top: 1px solid var(--line); padding: 4px 0; }
+		ul.history li[data-status="failed"], ul.history li[data-status="cancelled"] { color: var(--error); }
+		.badge { display: inline-block; background: var(--warning); color: #fff; border-radius: 3px; padding: 0 5px;
+		         font-size: 11px; font-weight: 600; }
 		.binding { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 4px;
 		           padding: 8px; margin-bottom: 8px; }
 		.binding .title { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }

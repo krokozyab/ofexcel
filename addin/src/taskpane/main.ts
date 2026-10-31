@@ -1,7 +1,8 @@
 // The task pane, and the shared runtime it is (SPEC.md §5.1): finds the
 // daemon, keeps an eye on it and on the connections, asks about the workbook's
-// queries when it opens (CONTRACTS.md §9.3), and shows the tables, the
-// connections and the query editor.
+// queries when it opens (CONTRACTS.md §9.3), and shows the connections, the
+// data the workbook's formulas miss (SPEC.md §7.5), the tables and the query
+// editor.
 
 import { DaemonClient } from '../api/client';
 import { HealthMonitor } from '../api/health';
@@ -14,9 +15,11 @@ import { readPayload, writePayload } from '../workbook/office';
 import { connectionProblem, WorkbookTrust } from '../workbook/trust';
 import type { Binding } from '../writer/bindings';
 import { excelTables } from '../writer/excel_table';
+import { MissingModel } from '../writer/missing';
 import { TablesModel } from '../writer/tables';
 import { ConnectionsView } from './connections_view';
 import { EditorSection } from './editor_view';
+import { MissingView } from './missing_view';
 import { describeStatus } from './status';
 import { TablesView } from './tables_view';
 import { TrustDialog } from './trust_view';
@@ -38,6 +41,11 @@ Office.onReady(() => {
 	const editor = new EditorModel(client, workbook, sheet);
 	const tables = new TablesModel(client, workbook, sheet, excelTables);
 	const trust = new WorkbookTrust(client, workbook, () => connections.connections);
+	const missing = new MissingModel(client, workbookId, { allows: (hash) => trust.allows(hash) });
+	const readMissing = () =>
+		void missing.load().catch(() => {
+			// The daemon away: the health line says so; the list waits for the next beat.
+		});
 
 	// §9.3: an untrusted query does not run; a table bound to another host's
 	// connection runs once the person chose one of theirs.
@@ -46,12 +54,16 @@ Office.onReady(() => {
 			? connectionProblem(binding, connections.connections)
 			: NOT_TRUSTED;
 	tables.setGuard(guard);
-	trust.onChange(() => tables.setGuard(guard));
+	trust.onChange(() => {
+		tables.setGuard(guard);
+		readMissing();
+	});
 	connections.onChange(() => tables.setGuard(guard));
 
 	const main = document.querySelector('main');
 	if (main) {
 		new ConnectionsView(main, connections);
+		new MissingView(main, missing);
 		new TablesView(main, tables, connections, () => void trust.open());
 		new EditorSection(main, editor, connections, client, tables);
 		new TrustDialog(document.body, trust);
@@ -63,6 +75,7 @@ Office.onReady(() => {
 		try {
 			await trust.open();
 			await tables.load();
+			readMissing();
 		} catch {
 			// Outside Excel, or a part this add-in cannot read: nothing to ask about.
 		}
@@ -83,6 +96,7 @@ Office.onReady(() => {
 		onChecked(state) {
 			if (state.kind === 'online') {
 				void connections.refresh();
+				readMissing();
 			}
 		},
 	});

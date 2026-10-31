@@ -158,7 +158,8 @@ addin/src/connections/      connections and sign-in as the pane sees them (SPEC.
 addin/src/editor/           the SQL editor: header rewriting, cell values, completions, Preview, saving (SPEC.md §5.2)
 addin/src/workbook/         the workbook: its id (§9.1), the QExcel part (§9.2), trust when it opens (§9.3)
 addin/src/writer/           Excel Tables (CONTRACTS.md §11): values, schema, writer (tested), excel_table.ts (Office.js),
-                            tables.ts: load into a table, refresh, retry a write
+                            tables.ts: load into a table, refresh with progress and Cancel, history, retry a write;
+                            runs.ts: following a run and its words; missing.ts: Smart Refresh (/v1/missing)
 addin/src/taskpane/         the task pane: entry point (the shared runtime), status bar, sections; dom.ts builds DOM
 addin/src/config.ts         where the daemon is: the page's origin (local) or the loopback (hosted)
 addin/test/                 add-in unit tests (node --test)

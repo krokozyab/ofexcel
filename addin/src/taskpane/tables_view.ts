@@ -1,9 +1,12 @@
-// The Tables section of the pane (SPEC.md §5.4, CONTRACTS.md §11.2–11.3): each
-// table bound to a query, when it was last refreshed, and Refresh; a refused
-// schema with "Apply new schema"; a stopped write with "Retry write".
+// The Tables section of the pane (SPEC.md §5.4, §5.7, CONTRACTS.md §11.2–11.3):
+// each table bound to a query, when it was last refreshed and whether it was
+// truncated, and Refresh; while it runs, rows, speed, time and Cancel; its
+// history of runs; a refused schema with "Apply new schema"; a stopped write
+// with "Retry write".
 
 import type { ConnectionsModel } from '../connections/model';
 import type { Binding } from '../writer/bindings';
+import { describeParams, describeRun, describeTruncation, formatTime } from '../writer/runs';
 import type { TablesModel } from '../writer/tables';
 import { h } from './dom';
 
@@ -59,6 +62,31 @@ export class TablesView {
 		);
 	}
 
+	/** The runs of the binding's query, newest first (SPEC.md §5.7). */
+	private historyOf(binding: Binding): HTMLElement {
+		const runs = this.model.history.get(binding.binding_id);
+		if (!runs) {
+			return h('div', { class: 'note' }, 'Reading the history…');
+		}
+		if (runs.length === 0) {
+			return h('div', { class: 'note' }, 'No runs of this query from this workbook yet.');
+		}
+		return h(
+			'ul',
+			{ class: 'history' },
+			...runs.map((run) => {
+				const params = describeParams(run.params);
+				return h(
+					'li',
+					{ 'data-status': run.status },
+					h('div', {}, describeRun(run)),
+					h('div', { class: 'note' }, `definition ${run.query.hash.slice(0, 12)}` + (params ? ` · ${params}` : '')),
+					run.error ? h('div', { class: 'problem' }, run.error.message) : null,
+				);
+			}),
+		);
+	}
+
 	private render(): void {
 		const model = this.model;
 		const items: Node[] = [];
@@ -69,6 +97,9 @@ export class TablesView {
 					{ class: 'binding' },
 					h('strong', {}, `Loading ${model.loading.query} into a table`),
 					model.loading.busy ? h('div', { class: 'signing-in' }, model.loading.busy) : null,
+					model.loading.runId
+						? h('div', { class: 'actions' }, h('button', { onclick: () => void model.cancel() }, 'Cancel'))
+						: null,
 					model.loading.error ? h('div', { class: 'problem' }, model.loading.error) : null,
 				),
 			);
@@ -95,9 +126,11 @@ export class TablesView {
 						? h(
 								'div',
 								{ class: 'state' },
-								`Updated ${last.at.replace('T', ' ').replace('Z', ' UTC')} · ${last.rows.toLocaleString('en-US')} rows` +
-									(last.truncated ? ' · truncated at the query\'s row limit' : ''),
+								`Updated ${formatTime(last.at)} · ${last.rows.toLocaleString('en-US')} rows`,
 							)
+						: null,
+					last?.truncated
+						? h('div', { class: 'warning' }, h('span', { class: 'badge' }, 'Truncated'), ` ${describeTruncation(last.rows)}`)
 						: null,
 					binding.partial
 						? h('div', { class: 'problem' }, 'Table partially updated: the last write stopped part way')
@@ -108,7 +141,12 @@ export class TablesView {
 						? h('div', { class: 'actions' }, h('button', { onclick: () => this.review() }, 'Review queries'))
 						: null,
 					state.busy ? h('div', { class: 'signing-in' }, state.busy) : null,
+					state.done && !busy ? h('div', { class: 'note' }, state.done) : null,
 					state.error && state.error !== blocked ? h('div', { class: 'problem' }, state.error) : null,
+					// §5.7: a failed run never takes the last result away.
+					state.error && state.error !== blocked && last && !binding.partial
+						? h('div', { class: 'note' }, `The table still holds the result of ${formatTime(last.at)}`)
+						: null,
 					...(state.warnings ?? []).map((warning) => h('div', { class: 'warning' }, warning)),
 					h(
 						'div',
@@ -117,6 +155,14 @@ export class TablesView {
 							'button',
 							{ disabled: busy || blocked !== '', onclick: () => void model.refresh(binding.binding_id) },
 							'Refresh',
+						),
+						state.runId
+							? h('button', { onclick: () => void model.cancel(binding.binding_id) }, 'Cancel')
+							: null,
+						h(
+							'button',
+							{ onclick: () => void model.toggleHistory(binding.binding_id) },
+							model.historyOpen.has(binding.binding_id) ? 'Hide history' : 'History',
 						),
 						binding.partial
 							? h('button', { disabled: busy, onclick: () => void model.retryWrite(binding.binding_id) }, 'Retry write')
@@ -129,6 +175,7 @@ export class TablesView {
 								)
 							: null,
 					),
+					model.historyOpen.has(binding.binding_id) ? this.historyOf(binding) : null,
 				),
 			);
 		}

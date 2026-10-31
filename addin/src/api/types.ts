@@ -114,14 +114,33 @@ export interface Preview {
 	warnings: Warning[];
 }
 
+/** Parameters as the daemon keeps them (CONTRACTS.md §1.2): strings, lists of strings. */
+export type CanonicalParams = Record<string, string | string[]>;
+
 /** A run (CONTRACTS.md §8.2 Run), as far as the add-in reads it. */
 export interface Run {
 	run_id: string;
 	instance_key: string;
 	query: { id: string; hash: string };
 	connection: string;
+	environment?: string;
+	params: CanonicalParams;
 	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+	started_at: string;
+	finished_at?: string;
 	rows_fetched: number;
 	truncated: boolean;
+	parent_run_id?: string;
+	depends_on: string[];
 	error?: { code: string; message: string };
+}
+
+/** GET /v1/missing: data a formula of the workbook asked for and did not find. */
+export interface MissingEntry {
+	query: { id: string; hash: string };
+	connection: string;
+	params: CanonicalParams;
+	first_seen: string;
+	last_seen: string;
+	requests: number;
 }
